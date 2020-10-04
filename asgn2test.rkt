@@ -84,11 +84,11 @@
            (lambda () (getBinOp '^ (num 1) (num 2))))
 
 ;;interpret DXUQ2 and outputs a real
-(define (interp [dx : DXUQ2]) : Real
-  (match dx
-    [(num n) n]
-    [(binop op l r) (getBinOp op l r)]
-    [(ifleq0 test then else) (if (< (interp test) 1) (interp then) (interp else))]))
+;(define (interp [dx : DXUQ2]) : Real
+;  (match dx
+;    [(num n) n]
+;    [(binop op l r) (getBinOp op l r)]
+;    [(ifleq0 test then else) (if (< (interp test) 1) (interp then) (interp else))]))
 
 (check-equal? (interp (num 5)) 5)
 (check-equal? (interp (binop '+ (num 2) (num 3))) 5)
@@ -138,7 +138,7 @@
 
 
 (define (interp-fns [funs : (Listof fundef)]) : Real
-  (match (first funs)
+  
     
 
     
