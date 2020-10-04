@@ -1,44 +1,59 @@
 #lang scribble/manual
 
-To: Denali project management
-From: Andrew Lai
-Date: 9/19/2020
-Subj: Dev language for project Denali
+From: David Reko, Manager at MicroGoogleBook
+To: Upper Management at MicroGoogleBook
 
-On the previous business day the deveopment team for project Denali submitted a proposal 
-to write our new mobile OS in Rust. Here is a summary of the largest influencers of the team's
-proposal.
+Hello,
 
-Firstly, users need consistency; we must select a programming language that is robust, that
-will not crash easily, and that will perform for the entirety of the phone's lifespan. This rules
-out many cutting edge languages and other languages that are still in the development phase today.
-While this could be achieved with most languages, some are easier to write and debug in such a
-way that makes this easy. Next, the language must be efficient; obviously, phones suffer from severe hardware and space
-limitations and as such our source code must take full advantage of processing power. Another very important
-influence in the decision of the source language is its popularity. If we select a popular language,
-there is a higher chance that our developers will already have experience using it, reducing training
-costs and saving time. Similarly, with a popular language, it will be more likely for third parties to
-develop apps on our platform. As you know, we don't want to force third parties to learn some new, proprietary
-language as a new competetor in the moble OS market. Popular languages also tend to have better documentation,
-a larger support community, stabler source code, and better development tools. The last consideration I will bring up
-for today is that we must select a language that our senior devs are comfortable with -- a language that
-the team already has experience with. This is rather self-explanatory but it is critical that we have
-employees who can lead development without having to worry about learning the language from scratch
-themselves.
+I have decided that, moving forward, our next project will be to
+create a new mobile operating system. This operating system will
+need to be able to outperform our competitors, as well as
+bringing new ideas and innovations to the mobile operating system
+world. After serious consideration, I have identified several important
+criteria for the programming language that will be used to create
+this new system. I feel that the three most important qualities
+that this language must have are that it has direct memory access,
+must be easily readable, and must be highly efficient. These are all
+qualities that will lend themselves well to the creation of a
+new operating system. Direct memory access is very important to
+the creation of a new operating system because it allows the
+programmer to directly interact with the system and manipulate the
+memory as necessary. A large team of individuals will be working
+on this project, and because of this it is very important that
+the code created is easily readable, and can be understood by
+many different people. Time will be saved in the long run because
+more time will be able to spent on work rather than understanding
+code written by others. Efficiency is also very important to this
+project because the operating system will need to run quickly and
+efficiently. This is key to the success of our new mobile operating
+system because the customer will have a more positive reaction
+with a fast and efficient product.
 
-Rust would be our first choice that meets all of these conditions. Rust is a low level language that
-works very closely to the hardware but is also easy to develop with. Like C, Rust can be optimized
-extremely well to perform efficiently and consisently. And while it is a new guy on the programming
-scene, it is already being used in a variety of applications and has a strong support base. One of our
-technical leads was part of the team that developed the language so there is plenty of internal experience
-for new hires to rely on. In the case Rust fails for some unforseen reason, we can always fall back to
-C++ or C#, but our team believes it will be easier to develop more efficiently with Rust. All three will
-be able to do the job, but the team feels that Rust has the ideal combiation of efficiency, low learning curve,
-community support, and usability. Management proposed using Python or Java in preliminary design reviews 
-however both languages will not be a good fit for what we are looking to achieve for the following reason: 
-Both require a virtual environment to run; to run Python or Java code, there must be a Python or Java 
-runtime engine behind it. This results in inefficient utilization of processing power and unnecessary 
-usage of computer resources.
+After careful consideration, I feel that the best language for this
+project will be C. This language will satisfy all of the criteria
+listed above and will allow us to execute at a high level when
+creating this new operating system. First, C is well known for
+being a 'mid' level language. It combines aspects of a low level
+language, such as direct memory access, with those of a high level
+language, such as easy readability. C will allow direct memory
+access, and could be regarded as a 'high' level assembly code.
+This will help the team to interact with the system as they program.
+Second, C has a high level syntax that makes it easily readable.
+Also, C is a widely used language, and because of this many people
+are already familiar with it and the learning curve won't be as
+steep for the team. Third, C has an unmatched runtime when compared to many
+programming languages. C does very few processes behind the scenes,
+such as garbage collection, and because of this it has a faster
+runtime than many other languages. With all of this in mind, C was
+a clear choice for this project. Not only, has C been around for a
+very long time, but it remains the top choice for many operating
+systems that we use everyday. On top of all the benefits of using C
+listed above, C is also easily changed into assembly code. This
+would be very beneficial in the creation of an operating system
+because it allows the programmer to view assembly code when finding
+and fixing bugs. C is a fundamental programming language, and I feel
+that it will lead us to the most success in the pursuit of creating
+a new mobile operating system.
 
-If there is no opposition brought up, we plan to begin sprint 1 next week and plan to have design review 2
-in 2 months.
+Sincerely,
+David Reko
