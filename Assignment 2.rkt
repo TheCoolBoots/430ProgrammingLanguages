@@ -30,7 +30,7 @@
     [other (error "invalid format DXUQ")]))
 
 
-; parses a binary operator expression into a binopC
+; parses a binary operator expression into a DXUQ2 expression
 (: parseBinary (-> Sexp DXUQ2))
 (define (parseBinary exp)
   (match exp
