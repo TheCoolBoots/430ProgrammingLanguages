@@ -2,112 +2,129 @@
 
 (require typed/rackunit)
 
-;;create DXUQ2 language
+; definitions for DXUQ2 types
 (define-type DXUQ2 (U num binop ifleq0 id app))
-(struct num ([n : Real]) #:transparent)
-(struct binop ([op : Symbol] [l : DXUQ2] [r : DXUQ2]) #:transparent)
-(struct ifleq0 ([test : DXUQ2] [then : DXUQ2] [else : DXUQ2]) #:transparent)
+(struct num ([n : Real])                                       #:transparent)
+(struct binop ([op : Symbol] [l : DXUQ2] [r : DXUQ2])          #:transparent)
+(struct ifleq0 ([test : DXUQ2] [then : DXUQ2] [else : DXUQ2])  #:transparent)
+(struct id ([s : Symbol])                                      #:transparent)
+(struct app ([func : Symbol] [arg : DXUQ2])                    #:transparent)
+
 (struct fundef ([name : Symbol] [arg : Symbol] [body : DXUQ2]) #:transparent)
-(struct id ([s : Symbol]) #:transparent)
-(struct app ([func : Symbol] [arg : DXUQ2]) #:transparent)
+
+(define keywords (list '+ '- '* '/ 'ifleq0 'fundef 'undef))
 
 
-;;takes an s-expr of functions and returns a real
-(: top-interp (Sexp -> Real))
-(define (top-interp fun-sexps)
-  (interp-fns (parse-prog fun-sexps)))
-
-
-;;takes a DXUQ2 and listof functions and returns a real
-(define (interp [exp : DXUQ2] [funs : (Listof fundef)]) : Real
-  (match exp
-    [(num n) n]
-    [(binop op l r) (getBinOp op l r funs)]
-    [(ifleq0 test then else) (if (< (interp test funs) 1) (interp then funs) (interp else funs))]
-    [(app func arg) (define fd (get-fundef func funs)) (interp (subst arg
-                                                                       (fundef-arg fd)
-                                                                       (fundef-body fd))
-                                                                funs)]
-    [(id sym) (error "invalid format DXUQ")]))
-
-
-;;takes a listof functions and returns a real
-(define (interp-fns [funs : (Listof fundef)]) : Real
-   (define main (filter is_main? funs))
-   (define notMain(filter not_main? funs))
-  (if (= (length main) 0) (error "invalid format DXUQ")
-      (interp (subst (num 0) 'init (fundef-body (first main))) notMain)))
-
-
-;;takes in s-expr and parses to create DXUQ2
-(define (parse [s : Sexp]) : DXUQ2
+; takes in s-expr and parses to create DXUQ2
+(: parse (-> Sexp DXUQ2))
+(define (parse s)
   (match s
     [(? real? r) (num r)]
-    [(list '+ l r) (binop '+ (parse l) (parse r))]
-    [(list '- l r) (binop '- (parse l) (parse r))]
-    [(list '* l r) (binop '* (parse l) (parse r))]
-    [(list '/ l r) (binop '/ (parse l) (parse r))]
+    [(list (? symbol? sym) l r) (parseBinary s)]
     [(list 'ifleq0 test then else) (ifleq0 (parse test) (parse then) (parse else))]
-    [(? symbol? sym) (match sym
-                       ['+  (error "invalid format DXUQ")]
-                       ['-  (error "invalid format DXUQ")]
-                       ['*  (error "invalid format DXUQ")]
-                       ['/  (error "invalid format DXUQ")]
-                       ['undef  (error "invalid format DXUQ")]
-                       ['ifleq0  (error "invalid format DXUQ")]
-                       ['fundef (error "invalid format DXUQ")]
-                       [other (id sym)])]
+    [(? symbol? sym) (cond
+                       [(DXUQ2-keyword? sym keywords) (error "invalid format DXUQ")]
+                       [else (id sym)]
+                     )]
     [(list (? symbol? sym) arg) (app sym (parse arg))]
     [other (error "invalid format DXUQ")]))
 
 
-;;takes in s-expr and parses to make function
-(define (parse-fundef [s : Sexp]) : fundef
+; parses a binary operator expression into a DXUQ2 expression
+(: parseBinary (-> Sexp DXUQ2))
+(define (parseBinary exp)
+  (match exp
+    [(list '+ l r) (binop '+ (parse l) (parse r))]
+    [(list '- l r) (binop '- (parse l) (parse r))]
+    [(list '* l r) (binop '* (parse l) (parse r))]
+    [(list '/ l r) (binop '/ (parse l) (parse r))]))
+
+
+; checks to see if a symbol is part of a list of symbols
+; returns true if symbol exists in list, false otherwise
+(: DXUQ2-keyword? (-> Symbol (Listof Symbol) Boolean))
+(define (DXUQ2-keyword? target keywords)
+  (cond
+    [(empty? keywords) #f]
+    [(eq? (first keywords) target) #t]
+    [else (DXUQ2-keyword? target (rest keywords))]))
+
+
+; parses a s-expression into a fundef
+(: parse-fundef (-> Sexp fundef))
+(define (parse-fundef s)
   (match s
     [(list 'fundef (list (? symbol? name) (? symbol? arg)) body) (fundef name arg (parse body))]
     [other (error "invalid format DXUQ")]))
 
 
-;;takes in s-expr and parses to make list of functions
-(define (parse-prog [s : Sexp]) : (Listof fundef)
+; parses an s-expression into a list of fundef
+(: parse-prog (-> Sexp (Listof fundef)))
+(define (parse-prog s)
   (match s
-    [(list) (error "invalid format DXUQ")]
+    ['() (error "invalid format DXUQ")]
     [(list a) (cons (parse-fundef a) '())]
-    [(list a b) (cons (parse-fundef a) (cons (parse-fundef b) '()))]
     [(? list? l) (cons (parse-fundef (first l)) (parse-prog (rest l)))]
     [other (error "invalid format DXUQ")]))
 
-;;determine what bin op to perform given symbol and two DXUQ2
-(define (getBinOp [op : Symbol] [l : DXUQ2] [r : DXUQ2] [funcs : (Listof fundef)]) : Real
+
+; takes a listof functions and returns a real
+(: interp-fns (-> (Listof fundef) Real))
+(define (interp-fns funs)
+  (define main (filter is_main? funs))
+  (define functionList (filter not_main? funs))
+  (cond
+    [(empty? main) (error "invalid format DXUQ")]
+    [else (interp (subst (num 0) 'init (fundef-body (first main))) functionList)]))
+
+
+; interprets a DXUQ2 expression and returns a real
+(: interp (-> DXUQ2 (Listof fundef) Real))
+(define (interp exp funs)
+  (match exp
+    [(num n) n]
+    [(binop op l r) (interp-binop op l r funs)]
+    [(ifleq0 test then else) (interp-ifleq0 funs test then else)]
+    [(app func arg) (interp-function func arg funs)]
+    [(id sym) (error "invalid format DXUQ")]))
+
+
+; parses a list of function definitions and interprets main
+; returns a real number
+(: top-interp (Sexp -> Real))
+(define (top-interp fun-sexps)
+  (interp-fns (parse-prog fun-sexps)))
+
+
+; interprets a function call into a Real
+(: interp-function (-> Symbol DXUQ2 (Listof fundef) Real))
+(define (interp-function func arg funs)
+  (define fd (get-fundef func funs))
+  (interp (subst arg (fundef-arg fd) (fundef-body fd)) funs))
+
+
+; interprets a ifleq0 into a Real
+(: interp-ifleq0 (-> (Listof fundef) DXUQ2 DXUQ2 DXUQ2 Real))
+(define (interp-ifleq0 funs expIf expThen expElse)
+ (cond
+   [(<= (interp expIf funs) 0) (interp expThen funs)]
+   [else (interp expElse funs)]))
+
+
+; determine what bin op to perform given symbol and two DXUQ2
+(: interp-binop (-> Symbol DXUQ2 DXUQ2 (Listof fundef) Real))
+(define (interp-binop op l r funcs)
   (match op
-    ['+ (+ (interpBinOps l funcs) (interpBinOps r funcs))]
-    ['* (* (interpBinOps l funcs) (interpBinOps r funcs))]
-    ['- (- (interpBinOps l funcs) (interpBinOps r funcs))]
-    ['/ (/ (interpBinOps l funcs) (interpBinOps r funcs))]
+    ['+ (+ (interp l funcs) (interp r funcs))]
+    ['* (* (interp l funcs) (interp r funcs))]
+    ['- (- (interp l funcs) (interp r funcs))]
+    ['/ (/ (interp l funcs) (interp r funcs))]
     [other (error "invalid format DXUQ")]))
 
 
-;;interpret DXUQ2 and outputs a real
-(define (interpBinOps [dx : DXUQ2] [funcs : (Listof fundef)]) : Real
-  (match dx
-    [(num n) n]
-    [(app func arg) (define fd (get-fundef func funcs))
-                    (interpBinOps (subst arg (fundef-arg fd) (fundef-body fd)) funcs)]
-    [(binop op l r) (getBinOp op l r funcs)]
-    [(ifleq0 test then else) (if (< (interpBinOps test funcs) 1) (interpBinOps then funcs) (interpBinOps else funcs))]))
-
-
-;;get the function definition that matches the symbol
-(define (get-fundef [sym : Symbol] [funs : (Listof fundef)]) : fundef
-  (cond
-    [(empty? funs) (error "invalid format DXUQ")]
-    [(cons? funs) (cond
-                    [(equal? sym (fundef-name (first funs))) (first funs)]
-                    [else (get-fundef sym (rest funs))])]))
-
-
-;;substitute the value into the functions
-(define (subst [what : DXUQ2] [for : Symbol] [in : DXUQ2]) : DXUQ2
+; substitute given value recursively into given function
+(: subst (-> DXUQ2 Symbol DXUQ2 DXUQ2))
+(define (subst what for in)
   (match in
     [(num n) in]
     [(binop op l r) (binop op (subst what for l) (subst what for r))]
@@ -120,7 +137,16 @@
     [(app func arg) (app func (subst what for arg))]))
 
 
-;;predicate that checks if main function in list
+; returns the function with the name that matches the given symbol
+(: get-fundef (-> Symbol (Listof fundef) fundef))
+(define (get-fundef sym funs)
+  (cond
+    [(empty? funs) (error "invalid format DXUQ")]
+    [(equal? sym (fundef-name (first funs))) (first funs)]
+    [else (get-fundef sym (rest funs))]))
+
+
+; predicate that checks if given value is a main function
 (define (is_main? [fn : Any]) : Boolean
   (match fn
     [(fundef 'main 'init body) #t]
@@ -129,9 +155,7 @@
 
 ;;predicate that checks if the functions in list are not main
 (define (not_main? [fn : Any]) : Boolean
-  (match fn
-    [(fundef 'main 'init body) #f]
-    [other #t]))
+  (not (is_main? fn)))
 
 
 ;;top-interp test cases
@@ -237,35 +261,14 @@
            (lambda () (parse-prog 'a)))
 
 
-;;getBinOp test cases
-(check-equal? (getBinOp '- (num 1) (num 0) (list
+;;interp-binop test cases
+(check-equal? (interp-binop '- (num 1) (num 0) (list
  (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 1)
-(check-equal? (getBinOp '/ (num 0) (num 1) (list
+(check-equal? (interp-binop '/ (num 0) (num 1) (list
  (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 0)
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
-           (lambda () (getBinOp '^ (num 1) (num 2) (list
+           (lambda () (interp-binop '^ (num 1) (num 2) (list
  (fundef 'f 'x (binop '+ (id 'x) (num 14)))))))
-
-
-
-;;interpBinOps test cases
-(check-equal? (interpBinOps (num 5) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 5)
-(check-equal? (interpBinOps (binop '+ (num 2) (num 3)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 5)
-(check-equal? (interpBinOps (binop '* (num 5) (num 10)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 50)
-(check-equal? (interpBinOps (binop '- (num 23) (num 11)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 12)
-(check-equal? (interpBinOps (binop '/ (num 10) (num 5)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 2)
-(check-equal? (interpBinOps (ifleq0 (num 1) (num 2) (num 3)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 3)
-(check-equal? (interpBinOps (ifleq0 (num -1) (num 2) (num 3)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 2)
-(check-equal? (interpBinOps (app 'f (num 2)) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 16)
-
 
 
 ;;get-fundef test cases
