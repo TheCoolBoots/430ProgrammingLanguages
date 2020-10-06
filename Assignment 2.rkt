@@ -100,7 +100,7 @@
 (: interp-function (-> Symbol DXUQ2 (Listof fundef) Real))
 (define (interp-function func arg funs)
   (define fd (get-fundef func funs))
-  (interp (subst arg (fundef-arg fd) (fundef-body fd)) funs))
+  (interp (subst (num (interp arg funs)) (fundef-arg fd) (fundef-body fd)) funs))
 
 
 ; interprets a ifleq0 into a Real
@@ -179,7 +179,6 @@
                             {fundef {main init} {f0 3}}}) 5)
 
 
-
 ;;interp test cases
 (check-equal? (interp (num 1) (parse-prog '{{fundef {f x} {+ x 14}}})) 1)
 (check-equal? (interp (binop '* (num 2) (num 3)) (parse-prog  '{{fundef {f x} {+ x 14}}})) 6)
@@ -191,7 +190,6 @@
            (lambda () (interp (id 'a) (parse-prog '{{fundef {f x} {+ x 14}}}))))
 
 
-
 ;;interp-fns test cases
 (check-equal? (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}
                      {fundef {main init} {f 2}}})) 16)
@@ -201,7 +199,6 @@
                      {fundef {main init} {+ 1 2}}})) 3)
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}}))))
-
 
 
 ;;parse test cases
@@ -232,7 +229,6 @@
            (lambda () (parse '(+ fundef 3))))
 
 
-
 ;;parse-fundef test cases
 (check-equal? (parse-fundef '{fundef {addone x} {+ x 1}}) (fundef 'addone 'x (binop '+ (id 'x) (num 1))))
 (check-equal? (parse-fundef '{fundef {main init} {f 2}}) (fundef 'main 'init (app 'f (num 2))))
@@ -242,7 +238,6 @@
 (check-equal? (parse-fundef '{fundef {sub z} {- z 1}}) (fundef 'sub 'z (binop '- (id 'z) (num 1))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (parse-fundef '(1 x (+ x 1)))))
-
 
 
 ;;parse-prog test cases
@@ -282,7 +277,6 @@
            (lambda () (get-fundef 'x '())))
 
 
-
 ;;subst test cases
 (check-equal? (subst (num 5) 'f (binop '+ (id 'f) (num 5))) (binop '+ (num 5) (num 5)))
 (check-equal? (subst (num 2) 'f (num 5)) (num 5))
@@ -295,7 +289,6 @@
 ;;is_main? test cases
 (check-equal? (is_main? (fundef 'main 'init (binop '+ (num 1) (num 2)))) true)
 (check-equal? (is_main? (fundef 'f 'x (binop '+ (id 'x) (num 1)))) false)
-
 
 
 ;;not_main? test cases
