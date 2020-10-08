@@ -32,7 +32,7 @@
                        [else (idC sym)]
                      )]
     [(list (? symbol? sym)) (appC sym '())]                         ; {functionName}
-    [(list (? symbol? sym) arg ...) (appC sym (parseArgList arg))]  ; {functionName ExprC ExprC ...}
+    [(list (? symbol? sym) arg ...)  #:when (not (DXUQ3-keyword? sym binops)) (appC sym (parseArgList arg))]  ; {functionName ExprC ExprC ...}
     [other (error "invalid format DXUQ")]))
 
 
@@ -180,13 +180,13 @@
     [other #f]))
 
 
-;;predicate that checks if the functions in list are not main
+; predicate that checks if the functions in list are not main
 (define (not_main? [fn : Any]) : Boolean
   (not (is_main? fn)))
 
 
 
-;;top-interp test cases
+; top-interp test cases
 (check-equal? (top-interp '{{fundef {f {x}} {+ x 14}}
                      {fundef {main {}} {f 2}}}) 16)
 (check-equal? (top-interp '{{fundef {f {x}} {+ 5 14}}
@@ -205,7 +205,10 @@
                             {fundef {f0 {l}} 5}
                             {fundef {f2 {z}} {* {- z 1} {f 1}}}
                             {fundef {main {}} {f0 3}}}) 5)
-
+(check-equal? (top-interp '{{fundef {f {x y}} {+ x {ifleq0 y 4 5}}}
+                            {fundef {main {}} {f 3 -1}}}) 7)
+(check-equal? (top-interp '{{fundef {f {x y}} {/ x {ifleq0 y 4 5}}}
+                            {fundef {main {}} {f 10 1}}}) 2)
 
 
 ; intermediary functions test
@@ -218,7 +221,7 @@
 
 
 
-;; parse tests
+; parse tests
 (check-equal? (parse 2) (numC 2))
 (check-equal? (parse '(+ 1 2)) (binopC '+ (numC 1) (numC 2)))
 (check-equal? (parse '(- 1 2)) (binopC '- (numC 1) (numC 2)))
@@ -235,13 +238,11 @@
            (lambda () (parse '(+ fundef 3))))
 
 
-
 ; parse-fundef tests
 (check-equal? (parse-fundef '(fundef (fun1 (a b)) (+ a b))) (fundefC 'fun1 '(a b) (binopC '+ (idC 'a) (idC 'b))))
 
 
-
-;;subst test cases
+; subst test cases
 (check-equal? (subst (numC 5) 'f (binopC '+ (idC 'f) (numC 5))) (binopC '+ (numC 5) (numC 5)))
 (check-equal? (subst (numC 2) 'f (numC 5)) (numC 5))
 (check-equal? (subst (numC 0) 'x (ifleq0C (idC 'x) (numC 1) (numC 2))) (ifleq0C (numC 0) (numC 1) (numC 2)))
@@ -249,3 +250,8 @@
 (check-equal? (subst (idC 'z) 'x (idC 'f)) (idC 'f))
 (check-equal? (subst (numC 3) 'x (appC 'f (list (idC 'x) (idC 'k)))) (appC 'f (list (numC 3) (idC 'k))))
 (check-equal? (subst (numC 3) 'x (appC 'f (list (idC 'k) (idC 'x)))) (appC 'f (list (idC 'k) (numC 3))))
+
+
+; error cases
+(check-exn (regexp (regexp-quote "invalid format DXUQ"))
+           (lambda () (parse '(/ 1 2 3))))
