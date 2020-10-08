@@ -14,7 +14,6 @@
 
 (define keywords (list '+ '- '* '/ 'ifleq0 'fundef 'undef))
 
-
 ; takes in s-expr and parses to create DXUQ2
 (: parse (-> Sexp DXUQ2))
 (define (parse s)
@@ -26,9 +25,11 @@
                        [(DXUQ2-keyword? sym keywords) (error "invalid format DXUQ")]
                        [else (id sym)]
                      )]
-    [(list (? symbol? sym) args ...) (app sym (map (lambda (a) (parse a)) args))]
+    [(list (? symbol? sym) args ...)
+     (cond
+       [(DXUQ2-keyword? sym keywords) (error "invalid format DXUQ")]
+       [else (app sym (map (lambda (a) (parse a)) args))])]
     [other (error "invalid format DXUQ")]))
-
 
 ; parses a binary operator expression into a DXUQ2 expression
 (: parseBinary (-> Sexp DXUQ2))
@@ -39,7 +40,7 @@
     [(list '* l r) (binop '* (parse l) (parse r))]
     [(list '/ l r) (binop '/ (parse l) (parse r))]
     ; handles the case of a function call that has 2 params
-    [else (app (first (cast exp (Listof Symbol))) (map (lambda (a) (parse a)) (rest (cast exp (Listof Sexp)))))]))
+    [(list arg l r) (app (cast arg Symbol) (list (parse l) (parse r)))]))
 
 
 ; checks to see if a symbol is part of a list of symbols
@@ -56,7 +57,8 @@
 (: parse-fundef (-> Sexp fundef))
 (define (parse-fundef s)
   (match s
-    [(list 'fundef (list (? symbol? name) (? symbol? args) ...) body) (fundef name (cast args (Listof Symbol)) (parse body))]
+    [(list 'fundef (list (? symbol? name) (? symbol? args) ...) body)
+     (fundef name (cast args (Listof Symbol)) (parse body))]
     [other (error "invalid format DXUQ")]))
 
 
@@ -75,7 +77,7 @@
 (define (interp-fns funs)
   (define main (filter is_main? funs))
   (define functionList (filter not_main? funs))
-  (cond
+   (cond
     [(empty? main) (error "invalid format DXUQ")]
     [else (interp (subst (num 0) 'init (fundef-body (first main))) functionList)]))
 
@@ -87,10 +89,8 @@
     [(num n) n]
     [(binop op l r) (interp-binop op l r funs)]
     [(ifleq0 test then else) (interp-ifleq0 funs test then else)]
-    [(app func arg)
-     (cond
-       [(= (length arg) 1) (interp-function func (first arg) funs)]
-       [else (error "arguments != 1")])]
+    [(app func args) (define fd (get-fundef func funs))
+                     (interp (interp-subst-params args (fundef-args fd) (fundef-body fd) funs) funs)]
     [(id sym) (error "invalid format DXUQ")]))
 
 
@@ -99,14 +99,6 @@
 (: top-interp (Sexp -> Real))
 (define (top-interp fun-sexps)
   (interp-fns (parse-prog fun-sexps)))
-
-
-; interprets a function call into a Real
-(: interp-function (-> Symbol DXUQ2 (Listof fundef) Real))
-(define (interp-function func arg funs)
-  (define fd (get-fundef func funs))
-  (interp (subst (num (interp arg funs)) (fundef-args fd) (fundef-body fd)) funs))
-
 
 ; interprets a ifleq0 into a Real
 (: interp-ifleq0 (-> (Listof fundef) DXUQ2 DXUQ2 DXUQ2 Real))
@@ -139,11 +131,23 @@
     [(id sym) (cond
                 [(symbol=? sym for) what]
                 [else in])]
-    [(app func args)
-     (cond
-       [(= (length args) 1) (app func (list (subst what for (first args))))]
-       [else (error "NEED TO IMPLEMENT SUB")])]))
+    [(app func args) (app func (subst-helper what for args))]))
+     
+; substitute items in list
+(: subst-helper (-> DXUQ2 Symbol (Listof DXUQ2) (Listof DXUQ2)))
+(define (subst-helper what for args)
+  (cond
+    [(empty? args) '()]
+    [else (cons (subst what for (first args)) (subst-helper what for (rest args)))]))
 
+; validates that params = args, substitutes args for params
+(: interp-subst-params (-> (Listof DXUQ2) (Listof Symbol) DXUQ2 (Listof fundef) DXUQ2))
+(define (interp-subst-params params args targetBody funs)
+  (cond
+    [(xor (empty? params) (empty? args)) (error "DXUQ2 wrong arity")]
+    [(empty? params) targetBody]
+    [else (define newBody (subst (num (interp (first params) funs)) (first args) targetBody))
+          (interp-subst-params (rest params) (rest args) newBody funs)]))
 
 ; returns the function with the name that matches the given symbol
 (: get-fundef (-> Symbol (Listof fundef) fundef))
@@ -157,7 +161,7 @@
 ; predicate that checks if given value is a main function
 (define (is_main? [fn : Any]) : Boolean
   (match fn
-    [(fundef 'main 'init body) #t]
+    [(fundef 'main '() body) #t]
     [other #f]))
 
 
@@ -168,23 +172,23 @@
 
 ;;top-interp test cases
 (check-equal? (top-interp '{{fundef {f x} {+ x 14}}
-                     {fundef {main init} {f 2}}}) 16)
+                     {fundef {main} {f 2}}}) 16)
 (check-equal? (top-interp '{{fundef {f x} {+ 5 14}}
-                     {fundef {main init} {f 2}}}) 19)
+                     {fundef {main} {f 2}}}) 19)
 (check-equal? (top-interp '{{fundef {f x} {+ x 5}}
                             {fundef {f2 z} {* z 2}}
-                            {fundef {main init} {f2 3}}}) 6)
+                            {fundef {main} {f2 3}}}) 6)
 (check-equal? (top-interp '{{fundef {f x} {+ x 5}}
                             {fundef {f2 z} {* {- z 1} 2}}
-                            {fundef {main init} {f2 3}}}) 4)
+                            {fundef {main} {f2 3}}}) 4)
 (check-equal? (top-interp '{{fundef {f x} {+ x 5}}
                             {fundef {f2 z} {* {- z 1} {f 1}}}
-                            {fundef {main init} {f2 3}}}) 12)
+                            {fundef {main} {f2 3}}}) 12)
 (check-equal? (top-interp '{{fundef {f x} {+ x 5}}
                             {fundef {f1 l} {/ 2 2}}
                             {fundef {f0 l} 5}
                             {fundef {f2 z} {* {- z 1} {f 1}}}
-                            {fundef {main init} {f0 3}}}) 5)
+                            {fundef {main} {f0 3}}}) 5)
 
 
 
@@ -202,14 +206,26 @@
 
 ;;interp-fns test cases
 (check-equal? (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}
-                     {fundef {main init} {f 2}}})) 16)
+                     {fundef {main} {f 2}}})) 16)
 (check-equal? (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}
-                     {fundef {main init} {+ 1 2}}})) 3)
+                     {fundef {main} {+ 1 2}}})) 3)
 (check-equal? (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}
-                     {fundef {main init} {+ 1 2}}})) 3)
+                     {fundef {main} {+ 1 2}}})) 3)
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (interp-fns (parse-prog '{{fundef {f x} {+ x 14}}}))))
-
+(check-equal? (interp-fns
+       (parse-prog '{{fundef {f x y} {+ x y}}
+                     {fundef {main} {f 1 2}}}))
+      3)
+ (check-equal? (interp-fns
+        (parse-prog '{{fundef {f} 5}
+                      {fundef {main} {+ {f} {f}}}}))
+       10)
+ (check-exn #px"wrong arity"
+            (λ ()
+              (interp-fns
+               (parse-prog '{{fundef {f x y} {+ x y}}
+                             {fundef {main} {f 1}}}))))
 
 
 ;;parse test cases
@@ -238,14 +254,15 @@
            (lambda () (parse '(+ * 3))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (parse '(+ fundef 3))))
-
+(check-exn (regexp (regexp-quote "invalid format DXUQ"))
+           (lambda () (parse '(/ 1 2 3))))
 
 
 ;;parse-fundef test cases
 (check-equal? (parse-fundef '{fundef {addone x} {+ x 1}}) (fundef 'addone (list 'x) (binop '+ (id 'x) (num 1))))
-(check-equal? (parse-fundef '{fundef {main init} {f 2}}) (fundef 'main '() (app 'f (list (num 2)))))
+(check-equal? (parse-fundef '{fundef {main} {f 2}}) (fundef 'main '() (app 'f (list (num 2)))))
 (check-equal? (parse-fundef '{fundef {mult x} {* x 2}}) (fundef 'mult (list 'x) (binop '* (id 'x) (num 2))))
-(check-equal? (parse-fundef '{fundef {main init} {ifleq0 0 1 2}})
+(check-equal? (parse-fundef '{fundef {main} {ifleq0 0 1 2}})
               (fundef 'main '() (ifleq0 (num 0) (num 1) (num 2))))
 (check-equal? (parse-fundef '{fundef {sub z} {- z 1}}) (fundef 'sub (list 'z) (binop '- (id 'z) (num 1))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
