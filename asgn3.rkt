@@ -115,7 +115,10 @@
     ['+ (+ (interp l funcs) (interp r funcs))]
     ['* (* (interp l funcs) (interp r funcs))]
     ['- (- (interp l funcs) (interp r funcs))]
-    ['/ (/ (interp l funcs) (interp r funcs))]
+    ['/
+     (cond
+       [(= 0 (interp r funcs)) (error "invalid format DXUQ")]
+       [else (/ (interp l funcs) (interp r funcs))])]
     [other (error "invalid format DXUQ")]))
 
 
@@ -189,8 +192,8 @@
                             {fundef {f0 l} 5}
                             {fundef {f2 z} {* {- z 1} {f 1}}}
                             {fundef {main} {f0 3}}}) 5)
-
-
+(check-exn (regexp (regexp-quote "invalid format "))
+           (lambda () (top-interp '((fundef (ignoreit x) (+ 3 4)) (fundef (main) (ignoreit (/ 1 (+ 0 0))))))))
 
 ;;interp test cases
 (check-equal? (interp (num 1) (parse-prog '{{fundef {f x} {+ x 14}}})) 1)
