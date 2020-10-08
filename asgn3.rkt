@@ -10,7 +10,7 @@
 (struct id ([s : Symbol])                                      #:transparent)
 (struct app ([func : Symbol] [args : (Listof DXUQ2)])                    #:transparent)
 
-(struct fundef ([name : Symbol] [arg : Symbol] [body : DXUQ2]) #:transparent)
+(struct fundef ([name : Symbol] [args : (Listof Symbol)] [body : DXUQ2]) #:transparent)
 
 (define keywords (list '+ '- '* '/ 'ifleq0 'fundef 'undef))
 
@@ -56,7 +56,7 @@
 (: parse-fundef (-> Sexp fundef))
 (define (parse-fundef s)
   (match s
-    [(list 'fundef (list (? symbol? name) (? symbol? arg)) body) (fundef name arg (parse body))]
+    [(list 'fundef (list (? symbol? name) (? symbol? args) ...) body) (fundef name (cast args (Listof Symbol)) (parse body))]
     [other (error "invalid format DXUQ")]))
 
 
@@ -105,7 +105,7 @@
 (: interp-function (-> Symbol DXUQ2 (Listof fundef) Real))
 (define (interp-function func arg funs)
   (define fd (get-fundef func funs))
-  (interp (subst (num (interp arg funs)) (fundef-arg fd) (fundef-body fd)) funs))
+  (interp (subst (num (interp arg funs)) (fundef-args fd) (fundef-body fd)) funs))
 
 
 ; interprets a ifleq0 into a Real
@@ -242,12 +242,12 @@
 
 
 ;;parse-fundef test cases
-(check-equal? (parse-fundef '{fundef {addone x} {+ x 1}}) (fundef 'addone 'x (binop '+ (id 'x) (num 1))))
-(check-equal? (parse-fundef '{fundef {main init} {f 2}}) (fundef 'main 'init (app 'f (list (num 2)))))
-(check-equal? (parse-fundef '{fundef {mult x} {* x 2}}) (fundef 'mult 'x (binop '* (id 'x) (num 2))))
+(check-equal? (parse-fundef '{fundef {addone x} {+ x 1}}) (fundef 'addone (list 'x) (binop '+ (id 'x) (num 1))))
+(check-equal? (parse-fundef '{fundef {main init} {f 2}}) (fundef 'main '() (app 'f (list (num 2)))))
+(check-equal? (parse-fundef '{fundef {mult x} {* x 2}}) (fundef 'mult (list 'x) (binop '* (id 'x) (num 2))))
 (check-equal? (parse-fundef '{fundef {main init} {ifleq0 0 1 2}})
-              (fundef 'main 'init (ifleq0 (num 0) (num 1) (num 2))))
-(check-equal? (parse-fundef '{fundef {sub z} {- z 1}}) (fundef 'sub 'z (binop '- (id 'z) (num 1))))
+              (fundef 'main '() (ifleq0 (num 0) (num 1) (num 2))))
+(check-equal? (parse-fundef '{fundef {sub z} {- z 1}}) (fundef 'sub (list 'z) (binop '- (id 'z) (num 1))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (parse-fundef '(1 x (+ x 1)))))
 
@@ -255,14 +255,14 @@
 
 ;;parse-prog test cases
 (check-equal? (parse-prog '((fundef (f x) (+ x 14))))
-              (list (fundef 'f 'x (binop '+ (id 'x) (num 14)))))
+              (list (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))))
 (check-equal? (parse-prog '((fundef (f x) (+ x 14)) (fundef (f2 z) (* 2 3))))
-              (list (fundef 'f 'x (binop '+ (id 'x) (num 14)))
-                    (fundef 'f2 'z (binop '* (num 2) (num 3)))))
+              (list (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))
+                    (fundef 'f2 (list 'z) (binop '* (num 2) (num 3)))))
 (check-equal? (parse-prog '((fundef (f x) (+ x 14)) (fundef (f2 z) (* 2 3)) (fundef (f3 y) (/ y 1))))
-              (list (fundef 'f 'x (binop '+ (id 'x) (num 14)))
-                    (fundef 'f2 'z (binop '* (num 2) (num 3)))
-                    (fundef 'f3 'y (binop '/ (id 'y) (num 1)))))
+              (list (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))
+                    (fundef 'f2 (list 'z) (binop '* (num 2) (num 3)))
+                    (fundef 'f3 (list 'y) (binop '/ (id 'y) (num 1)))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (parse-prog '())))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
@@ -271,21 +271,21 @@
 
 ;;interp-binop test cases
 (check-equal? (interp-binop '- (num 1) (num 0) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 1)
+ (fundef 'f (list 'x) (binop '+ (id 'x) (num 14))))) 1)
 (check-equal? (interp-binop '/ (num 0) (num 1) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14))))) 0)
+ (fundef 'f (list 'x) (binop '+ (id 'x) (num 14))))) 0)
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (interp-binop '^ (num 1) (num 2) (list
- (fundef 'f 'x (binop '+ (id 'x) (num 14)))))))
+ (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))))))
 
 
 ;;get-fundef test cases
-(check-equal? (get-fundef 'f2 (list (fundef 'f 'x (binop '+ (id 'x) (num 14)))
-                    (fundef 'f2 'z (binop '* (num 2) (num 3)))))
-              (fundef 'f2 'z (binop '* (num 2) (num 3))))
-(check-equal? (get-fundef 'f (list (fundef 'f 'x (binop '+ (id 'x) (num 14)))
-                    (fundef 'f2 'z (binop '* (num 2) (num 3)))))
-              (fundef 'f 'x (binop '+ (id 'x) (num 14))))
+(check-equal? (get-fundef 'f2 (list (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))
+                    (fundef 'f2 (list 'z) (binop '* (num 2) (num 3)))))
+              (fundef 'f2 (list 'z) (binop '* (num 2) (num 3))))
+(check-equal? (get-fundef 'f (list (fundef 'f (list 'x) (binop '+ (id 'x) (num 14)))
+                    (fundef 'f2 (list 'z) (binop '* (num 2) (num 3)))))
+              (fundef 'f (list 'x) (binop '+ (id 'x) (num 14))))
 (check-exn (regexp (regexp-quote "invalid format DXUQ"))
            (lambda () (get-fundef 'x '())))
 
@@ -301,11 +301,11 @@
 
 
 ;;is_main? test cases
-(check-equal? (is_main? (fundef 'main 'init (binop '+ (num 1) (num 2)))) true)
-(check-equal? (is_main? (fundef 'f 'x (binop '+ (id 'x) (num 1)))) false)
+(check-equal? (is_main? (fundef 'main '() (binop '+ (num 1) (num 2)))) true)
+(check-equal? (is_main? (fundef 'f (list 'x) (binop '+ (id 'x) (num 1)))) false)
 
 
 
 ;;not_main? test cases
-(check-equal? (not_main? (fundef 'main 'init (binop '+ (num 1) (num 2)))) false)
-(check-equal? (not_main? (fundef 'f 'x (binop '+ (id 'x) (num 1)))) true)
+(check-equal? (not_main? (fundef 'main '() (binop '+ (num 1) (num 2)))) false)
+(check-equal? (not_main? (fundef 'f (list 'x) (binop '+ (id 'x) (num 1)))) true)
