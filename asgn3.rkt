@@ -2,6 +2,9 @@
 
 (require typed/rackunit)
 
+;; Finished project, passes all test cases created by our group
+;; as well as the handin server.
+
 ; definitions for DXUQ2 types
 (define-type DXUQ2 (U num binop ifleq0 id app))
 (struct num ([n : Real])                                       #:transparent)
@@ -13,6 +16,23 @@
 (struct fundef ([name : Symbol] [args : (Listof Symbol)] [body : DXUQ2]) #:transparent)
 
 (define keywords (list '+ '- '* '/ 'ifleq0 'fundef 'undef))
+
+; parses a list of function definitions and interprets main
+; returns a real number
+(: top-interp (Sexp -> Real))
+(define (top-interp fun-sexps)
+  (interp-fns (parse-prog fun-sexps)))
+
+; interprets a DXUQ2 expression and returns a real
+(: interp (-> DXUQ2 (Listof fundef) Real))
+(define (interp exp funs)
+  (match exp
+    [(num n) n]
+    [(binop op l r) (interp-binop op l r funs)]
+    [(ifleq0 test then else) (interp-ifleq0 funs test then else)]
+    [(app func args) (define fd (get-fundef func funs))
+                     (interp (interp-subst-params args (fundef-args fd) (fundef-body fd) funs) funs)]
+    [(id sym) (error "invalid format DXUQ")]))
 
 ; takes in s-expr and parses to create DXUQ2
 (: parse (-> Sexp DXUQ2))
@@ -80,25 +100,6 @@
    (cond
     [(empty? main) (error "invalid format DXUQ")]
     [else (interp (subst (num 0) 'init (fundef-body (first main))) functionList)]))
-
-
-; interprets a DXUQ2 expression and returns a real
-(: interp (-> DXUQ2 (Listof fundef) Real))
-(define (interp exp funs)
-  (match exp
-    [(num n) n]
-    [(binop op l r) (interp-binop op l r funs)]
-    [(ifleq0 test then else) (interp-ifleq0 funs test then else)]
-    [(app func args) (define fd (get-fundef func funs))
-                     (interp (interp-subst-params args (fundef-args fd) (fundef-body fd) funs) funs)]
-    [(id sym) (error "invalid format DXUQ")]))
-
-
-; parses a list of function definitions and interprets main
-; returns a real number
-(: top-interp (Sexp -> Real))
-(define (top-interp fun-sexps)
-  (interp-fns (parse-prog fun-sexps)))
 
 ; interprets a ifleq0 into a Real
 (: interp-ifleq0 (-> (Listof fundef) DXUQ2 DXUQ2 DXUQ2 Real))
