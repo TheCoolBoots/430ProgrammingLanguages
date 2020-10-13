@@ -53,7 +53,7 @@
 ;; returns a list of booleans that say for each element in qlst if they
 ;; exist in symlst
 (define (in-list-many? symlst qlst)
-  (map (lambda (b) (((curry2 contains?) symlst) b)) qlst))
+  (map ((curry2 contains?) symlst) qlst))
 
 (check-equal? (in-list-many? '(a b c d) '(f a a c)) '(#f #t #t #t))
 (check-equal? (in-list-many? '(a b c) '(d e a)) '(#f #f #t))
