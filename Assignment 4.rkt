@@ -8,35 +8,63 @@
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC Value))
-(struct idC ([s : Symbol]))
-(struct appC ([target : ExprC] [args : (Listof ExprC)]))
-(struct condC ([if : ExprC] [then : ExprC] [else : ExprC]))
-(struct lamC ([ids : (Listof Symbol)] [body : ExprC]))
+(struct idC ([s : Symbol]) #:transparent)
+(struct appC ([target : lamC] [args : (Listof ExprC)]) #:transparent)
+(struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
+(struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 
 (define-type Env (Listof Bind))
-(struct Bind ([name : Symbol] [val : Value]))
+(struct Bind ([name : Symbol] [val : Value]) #:transparent)
 
 (define-type Value (U numV strV primV boolV cloV))
-(struct numV  ([val : Real]))
-(struct strV  ([val : String]))
-(struct primV ([op : Symbol] [args : (Listof Any)]))
-(struct boolV ([val : Boolean]))
-(struct cloV  ([target : ExprC] [args : (Listof ExprC)] [clo-env : Env]))
+(struct numV  ([val : Real]) #:transparent)
+(struct strV  ([val : String]) #:transparent)
+(struct primV ([op : Symbol] [args : (Listof Any)]) #:transparent)
+(struct boolV ([val : Boolean]) #:transparent)
+(struct cloV  ([target : lamC] [args : (Listof ExprC)] [clo-env : Env]) #:transparent)
 
 (define primitives (list '+ '- '* '/ '<= 'equal? 'true 'false))
 
 
+
 ; interprets a DXUQ4 expression into a series of Values
-(: interp (-> ExprC Env Real))
+(: interp (-> ExprC Env Value))
 (define (interp exp env)
   (match exp
     [(idC sym) (interp (lookup-env sym env) env)]                ; look up symbol in environment, return binding if symbol exists in environment
-    [(appC function params) 0]   ; return a cloV with env extended to include mappings from lamC ids to params
-    [(condC if then else) 0]     ; if(if), then return then, else return else
-    [(lamC ids body) 0]          ; not sure what to do here
-    ;[(Value contents ...) 0]    ; pass onto helper function to interpret primitives, closures, and data types
+    [(appC function params) (define closure (gen-cloV exp env)) (interp closure (cloV-clo-env closure))]   ; return a cloV with env extended to include mappings from lamC ids to params
+    [(condC if then else) (numV 0)]     ; if(if), then return then, else return else
+    [(lamC ids body) (numV 0)]          ; not sure what to do here
+    [(primV op args) (numV 0)]
+    [(cloV target args clo-env) (numV 0)]
+    [(numV val) exp]
+    [(strV val) exp]
+    [(boolV val) exp]
     [other (error "invalid DXUQ4")]))
 
+
+; make a binding for each symbol in appC-lamC-ids with each of the arguments in appC-args
+; add the list of bindings to the env
+; return a cloV with appC target, args, and new env
+(: gen-cloV (-> appC Env cloV))
+(define (gen-cloV app env)
+  (define new-env (extend-env (lamC-ids (appC-target app)) (appC-args app) env))
+  (cloV (appC-target app) (appC-args app) new-env))
+
+
+; helper function for gen-cloV; returns extended environment
+(: extend-env (-> (Listof Symbol) (Listof ExprC) Env Env))
+(define (extend-env symbols args env)
+  (cond
+    [(xor (empty? symbols) (empty? args)) (error "Different numbers of symbols and args DXUQ")]
+    [(empty? symbols) env]
+    [else (cons (Bind (first symbols) (interp (first args) env)) (extend-env (rest symbols) (rest args) env))]))
+
+
+(check-equal? (extend-env '(a b c) (list (numV 1) (numV 2) (numV 3)) '())
+              (list (Bind 'a (numV 1)) (Bind 'b (numV 2)) (Bind 'c (numV 3))))
+(check-equal? (gen-cloV (appC (lamC '(a) (idC 'a)) (list (numV 3))) '())
+              (cloV (lamC '(a) (idC 'a)) (list (numV 3)) (list (Bind 'a (numV 3)))))
 
 ; looks up a symbol in an environment then returns the value associated with the symbol
 (: lookup-env (-> Symbol Env Value))
@@ -45,6 +73,12 @@
     [(empty? env) (error "Environment binding not found")]
     [(equal? (Bind-name (first env)) sym) (Bind-val (first env))]
     [else (lookup-env sym (rest env))]))
+
+
+(check-equal? (interp (idC 's) (list (Bind 's (numV 3)))) (numV 3))
+(check-equal? (interp (idC 's) (list (Bind 's (strV "hi")))) (strV "hi"))
+(check-equal? (interp (idC 's) (list (Bind 's (boolV #t)))) (boolV #t))
+
 
 
 ; takes in s-expr and parses to create ExprC
@@ -58,7 +92,7 @@
     ; let: desugar into function
     [(list 'fn (list ids ...) expr) (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
-    [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))] ; change parse args to parse each arg and get a list of ExprC
+    ;[(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))] ; change parse args to parse each arg and get a list of ExprC
     [(? symbol? s) (idC s)]
     [other (error "invalid format DXUQ")]))
 
