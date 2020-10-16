@@ -33,7 +33,7 @@
   (match exp
     [(idC sym) (interp (lookup-env sym env) env)]                ; look up symbol in environment, return binding if symbol exists in environment
     [(appC function params) (define closure (gen-cloV exp env)) (interp closure (cloV-clo-env closure))]   ; return a cloV with env extended to include mappings from lamC ids to params
-    [(condC if then else) (numV 0)]     ; if(if), then return then, else return else
+    [(condC if then else) (interp-cond if then else env)]     ; if(if), then return then, else return else
     [(lamC ids body) (numV 0)]          ; not sure what to do here
     [(primV op args) (numV 0)]
     [(cloV target args clo-env) (numV 0)]
@@ -41,6 +41,22 @@
     [(strV val) exp]
     [(boolV val) exp]
     [other (error "invalid DXUQ4")]))
+
+
+; interprets a DXUQ4 if statement and returns a Value
+(: interp-cond (-> ExprC ExprC ExprC Env Value))
+(define (interp-cond if then else env)
+  (match (interp if env)
+    [(boolV val) (cond
+                   [val (interp then env)]
+                   [else (interp else env)])]
+    [other (error "Conditional did not evaluate to a boolean DXUQ")]))
+
+
+(check-equal? (interp-cond (boolV #t) (numV 1) (numV 2) '()) (numV 1))
+(check-equal? (interp-cond (boolV #f) (numV 1) (numV 2) '()) (numV 2))
+(check-exn (regexp (regexp-quote "Conditional did not evaluate to a boolean DXUQ"))
+           (lambda () (interp-cond (numV 1) (numV 1) (numV 2) '())))
 
 
 ; make a binding for each symbol in appC-lamC-ids with each of the arguments in appC-args
@@ -65,6 +81,7 @@
               (list (Bind 'a (numV 1)) (Bind 'b (numV 2)) (Bind 'c (numV 3))))
 (check-equal? (gen-cloV (appC (lamC '(a) (idC 'a)) (list (numV 3))) '())
               (cloV (lamC '(a) (idC 'a)) (list (numV 3)) (list (Bind 'a (numV 3)))))
+
 
 ; looks up a symbol in an environment then returns the value associated with the symbol
 (: lookup-env (-> Symbol Env Value))
