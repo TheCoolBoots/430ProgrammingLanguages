@@ -35,7 +35,7 @@
     [else (contains? (rest lst) sym)]))
 
 (define (in-list-many? src qry)
-  (map (lambda (sym) (((curry2 contains?) src) sym)) qry))
+  (map ((curry2 contains?) src) qry))
 
 (check-equal? (in-list-many? '(a b c d) '(f a a c)) '(#f #t #t #t))
 (check-equal? (in-list-many? '(a b c) '(d e a)) '(#f #f #t))
