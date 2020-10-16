@@ -14,26 +14,38 @@
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]))
 
 (define-type Env (Listof Bind))
-(struct Bind ([name : Symbol] [val : Real]))
+(struct Bind ([name : Symbol] [val : Value]))
 
 (define-type Value (U numV strV primV boolV cloV))
-(struct numV ([val : Real]))
-(struct strV ([val : String]))
+(struct numV  ([val : Real]))
+(struct strV  ([val : String]))
 (struct primV ([op : Symbol] [args : (Listof Any)]))
 (struct boolV ([val : Boolean]))
-(struct cloV ([target : ExprC] [args : (Listof ExprC)] [clo-env : Env]))
+(struct cloV  ([target : ExprC] [args : (Listof ExprC)] [clo-env : Env]))
+
+(define primitives (list '+ '- '* '/ '<= 'equal? 'true 'false))
 
 
 ; interprets a DXUQ4 expression into a series of Values
 (: interp (-> ExprC Env Real))
 (define (interp exp env)
   (match exp
-    [(idC sym) 0]                ; look up symbol in environment, return binding if symbol exists in environment
+    [(idC sym) (interp (lookup-env sym env) env)]                ; look up symbol in environment, return binding if symbol exists in environment
     [(appC function params) 0]   ; return a cloV with env extended to include mappings from lamC ids to params
     [(condC if then else) 0]     ; if(if), then return then, else return else
     [(lamC ids body) 0]          ; not sure what to do here
-    ;[(Value contents ...) 0]   ; pass onto helper function to interpret primitives, closures, and data types
+    ;[(Value contents ...) 0]    ; pass onto helper function to interpret primitives, closures, and data types
     [other (error "invalid DXUQ4")]))
+
+
+; looks up a symbol in an environment then returns the value associated with the symbol
+(: lookup-env (-> Symbol Env Value))
+(define (lookup-env sym env)
+  (cond
+    [(empty? env) (error "Environment binding not found")]
+    [(equal? (Bind-name (first env)) sym) (Bind-val (first env))]
+    [else (lookup-env sym (rest env))]))
+
 
 ; takes in s-expr and parses to create ExprC
 (: parse (-> Sexp ExprC))
@@ -42,13 +54,15 @@
     [(? real? n) (numV n)]
     [(? string? s) (strV s)]
     [(? boolean? b) (boolV b)]
-    [(list (? symbol? s) args ...) #:when (equal? 1 1) (primV s args)]  ; change when equal to when symbol is a primitive
+    [(list (? symbol? s) args ...) #:when (member s primitives) (primV s args)]
     ; let: desugar into function
     [(list 'fn (list ids ...) expr) (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
-    ;[(list expr args ...) (appC (parse expr) (parse args))] ; change parse args to parse each arg and get a list of ExprC
+    [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))] ; change parse args to parse each arg and get a list of ExprC
     [(? symbol? s) (idC s)]
     [other (error "invalid format DXUQ")]))
+
+
 
 #|
 
