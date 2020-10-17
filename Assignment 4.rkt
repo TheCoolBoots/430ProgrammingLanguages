@@ -19,7 +19,7 @@
 (define-type Value (U numV strV primV boolV cloV))
 (struct numV  ([val : Real]) #:transparent)
 (struct strV  ([val : String]) #:transparent)
-(struct primV ([op : Symbol] [args : (Listof Any)]) #:transparent)
+(struct primV ([op : Symbol] [args : (Listof ExprC)]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([target : lamC] [args : (Listof ExprC)] [clo-env : Env]) #:transparent)
 
@@ -27,7 +27,7 @@
 
 
 
-; interprets a DXUQ4 expression into a series of Values
+; interprets a DXUQ4 expression into a Value
 (: interp (-> ExprC Env Value))
 (define (interp exp env)
   (match exp
@@ -41,6 +41,81 @@
     [(strV val) exp]
     [(boolV val) exp]
     [other (error "invalid DXUQ4")]))
+
+
+; interprets a primitive operator into a single value
+(: interp-prim (-> Symbol (Listof ExprC) Env Value))
+(define (interp-prim sym args env)
+  (match sym
+    ['+ (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+        (cond
+          [(<= (length args) 1) (error "Invalid number of arguments")]
+          [else (interp-add interpreted-args)])]
+    ['- (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+        (cond
+          [(<= (length args) 1) (error "Invalid number of arguments")]
+          [else (interp-sub interpreted-args)])]
+    ['* (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+        (cond
+          [(<= (length args) 1) (error "Invalid number of arguments")]
+          [else (interp-mult interpreted-args)])]
+    ['/ (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+        (cond
+          [(<= (length args) 1) (error "Invalid number of arguments")]
+          [else (interp-div interpreted-args)])]
+    ['<= (numV 0)]
+    ['equal? (numV 0)]
+    ['true (numV 0)]
+    ['false (numV 0)]
+    ['error (numV 0)]))
+    
+
+; interprets addition primitive
+(: interp-add (-> (Listof Value) numV))
+(define (interp-add args)
+  (cond
+    [(empty? args) (numV 0)]
+    [else (match (first args)
+            [(numV n) (numV (+ n (numV-val (interp-add (rest args)))) )]
+            [other (error "Invalid operands for DXUQ4 +")] )] ))
+
+
+; interprets subtraction primitive
+(: interp-sub (-> (Listof Value) numV))
+(define (interp-sub args)
+  (cond
+    [(andmap numV? args)
+     (define newArgs (cons (first args) (map (lambda ([arg : numV]) (numV (* -1 (numV-val arg)))) (rest args)) ) )
+     (interp-add newArgs)]
+    [else (error "Invalid operands for DXUQ4 -")]))
+
+
+; interprets multiplication primitive
+(: interp-mult (-> (Listof Value) numV))
+(define (interp-mult args)
+  (cond
+    [(empty? args) (numV 1)]
+    [else (match (first args)
+            [(numV n) (numV (* n (numV-val (interp-mult (rest args)))) )]
+            [other (error "Invalid operands for DXUQ4 *")] )] ))
+
+
+; interprets division primitive
+(: interp-div (-> (Listof Value) numV))
+(define (interp-div args)
+  (cond
+    [(and (andmap numV? args) (andmap (lambda ([n : numV]) (not (eq? (numV-val n) 0))) (rest args)))
+     (define newArgs (cons (first args) (map (lambda ([arg : numV]) (numV (/ 1 (numV-val arg)))) (rest args)) ) )
+     (interp-mult newArgs)]
+    [else (error "Invalid operands for DXUQ4 /")]))
+
+
+(check-equal? (interp-prim '+ (list (numV 2) (numV 3) (numV 4)) '()) (numV 9))
+(check-equal? (interp-prim '- (list (numV 2) (numV 3) (numV 4)) '()) (numV -5))
+(check-equal? (interp-prim '- (list (numV 2) (numV 3)) '()) (numV -1))
+(check-equal? (interp-prim '* (list (numV 2) (numV 3)) '()) (numV 6))
+(check-equal? (interp-prim '/ (list (numV 8) (numV 2)) '()) (numV 4))
+(check-equal? (interp-prim '/ (list (numV 8) (numV 2) (numV 2)) '()) (numV 2))
 
 
 ; interprets a DXUQ4 if statement and returns a Value
@@ -105,7 +180,7 @@
     [(? real? n) (numV n)]
     [(? string? s) (strV s)]
     [(? boolean? b) (boolV b)]
-    [(list (? symbol? s) args ...) #:when (member s primitives) (primV s args)]
+    [(list (? symbol? s) args ...) #:when (member s primitives) (primV s (map (lambda (arg) (parse arg)) args))]
     ; let: desugar into function
     [(list 'fn (list ids ...) expr) (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
