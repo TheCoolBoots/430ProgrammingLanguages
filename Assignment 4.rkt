@@ -47,28 +47,44 @@
 (: interp-prim (-> Symbol (Listof ExprC) Env Value))
 (define (interp-prim sym args env)
   (match sym
-    ['+ (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
-        (cond
+    ['+ (cond
           [(<= (length args) 1) (error "Invalid number of arguments")]
-          [else (interp-add interpreted-args)])]
-    ['- (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
-        (cond
+          [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                (interp-add interpreted-args)])]
+    ['- (cond
           [(<= (length args) 1) (error "Invalid number of arguments")]
-          [else (interp-sub interpreted-args)])]
-    ['* (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
-        (cond
+          [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                (interp-sub interpreted-args)])]
+    ['* (cond
           [(<= (length args) 1) (error "Invalid number of arguments")]
-          [else (interp-mult interpreted-args)])]
-    ['/ (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
-        (cond
+          [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                (interp-mult interpreted-args)])]
+    ['/ (cond
           [(<= (length args) 1) (error "Invalid number of arguments")]
-          [else (interp-div interpreted-args)])]
-    ['<= (numV 0)]
-    ['equal? (numV 0)]
-    ['true (numV 0)]
-    ['false (numV 0)]
-    ['error (numV 0)]))
-    
+          [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                (interp-div interpreted-args)])]
+    ['<= (cond
+           [(not (eq? (length args) 2)) (error "Invalid number of arguments; expected 2 arguments for <=")]
+           [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                (interp-leq interpreted-args)])]
+    ['equal? (cond
+           [(<= (length args) 1) (error "Invalid number of arguments; expected 2 arguments for equal?")]
+           [else (define interpreted-args (map (lambda ([arg : ExprC]) (interp arg env)) args))
+                 (define firstElement (first interpreted-args))
+                (boolV (andmap (lambda (a) (equal? a firstElement)) (rest interpreted-args)))])]
+    ['true (boolV #t)]
+    ['false (boolV #f)]
+    ['error (error "User Error %s")])) ; need to put serialization of parameter into %s
+
+
+; interprets <= exprC exprC to a boolean
+(: interp-leq (-> (Listof Value) boolV))
+(define (interp-leq args)
+  (cond
+    [(and (numV? (first args)) (numV? (second args)))
+     (boolV (<= (numV-val (cast (first args) numV)) (numV-val (cast (second args) numV)))) ]
+    [else (error "Invalid arguments for <= primitive")]))
+
 
 ; interprets addition primitive
 (: interp-add (-> (Listof Value) numV))
