@@ -211,10 +211,8 @@
     [(? symbol? s) (idC s)]
     [other (error "invalid format DXUQ")]))
 
-; (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
-; (struct appC ([target : lamC] [args : (Listof ExprC)]) #:transparent)
 
-
+; desugars a let statement into a function application (appC)
 (: parse-let (-> (Listof Any) Sexp ExprC))
 (define (parse-let mappings body)
   (define ids (map (lambda (mapping) (match mapping
@@ -230,11 +228,16 @@
 (check-equal? (parse '{let {a = 3} {b = 4} in {+ a b}})
               (appC (lamC (list 'a 'b) (primV '+ (list (idC 'a) (idC 'b)))) (list (numV 3) (numV 4))))
 
-#|
-    {let {z = {+ 9 14}} {y = 98} in {+ z y}}
-    {{fn {z y} {+ z y}} {+ 9 14} 98}
 
-    z, y -> lamC-ids
-    + z y -> lamC-body
-    {+ 9 14}, 98 -> appC-args
-|#
+; serializes a value into a string
+(: serialize (-> Value String))
+(define (serialize val)
+  (match val
+    [(numV val) (~v (~a val))]
+    [(strV val) (~v val)]
+    [(boolV val) (cond
+                   [val (~v "true")]
+                   [else (~v "false")])]
+    [(primV sym args) (~v "#<primop>")]
+    [(cloV fun args clov) (~v "#<procedure>")]))
+
