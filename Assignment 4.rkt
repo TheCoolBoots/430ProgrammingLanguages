@@ -9,7 +9,7 @@
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC Value))
 (struct idC ([s : Symbol]) #:transparent)
-(struct appC ([target : ExprC] [args : (Listof ExprC)]) #:transparent)
+(struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
 (struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 
@@ -21,7 +21,7 @@
 (struct strV  ([val : String]) #:transparent)
 (struct primV ([op : Symbol]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
-(struct cloV  ([body : ExprC] [ids : (Listof Symbol)] [clo-env : Env]) #:transparent)
+(struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
 
 (define top-env (list (Bind 'true (boolV #t))
                       (Bind 'false (boolV #f))
@@ -40,54 +40,32 @@
 (: interp (-> ExprC Env Value))
 (define (interp exp env)
   (match exp
-    [(idC sym) (interp (lookup-env sym env) env)]
-    [(appC appBody params)
-     (match (interp appBody env)
-       [(cloV body ids clo-env) (define new-env (extend-env ids params env)) (interp body new-env)]
-       [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env)) params))]
-       [other (error "Applied arguments to non-function DXUQ")])]
+    [(idC sym) (lookup-env sym env)]
     [(condC if then else) (interp-cond if then else env)]
+    [(appC body params)
+     (define interpretedBody (interp body env))
+     (match interpretedBody
+       [(cloV clo-body ids old-env)
+        (define interpretedParams (map (lambda ([param : ExprC]) (interp param old-env)) params))
+        (define new-env (extend-env ids interpretedParams old-env))
+        (interp clo-body new-env)]
+       [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env)) params))]
+       [(numV val) #:when (empty? params) interpretedBody]
+       [other (error "Applied arguments to non-function DXUQ")])]
     [(lamC ids body) (cloV body ids env)]
-    ;[(cloV body ids clo-env) (interp body clo-env)]
     [(numV val) exp]
     [(strV val) exp]
-    [(boolV val) exp]
-    [(primV sym) exp]))
+    [(boolV val) exp]))  
 
-#|
-> (parse '{if {<= 3 5} 3 5})
-- : ExprC
-(condC
- (appC (idC '<=) (list (numV 3) (numV 5)))
- (numV 3)
- (numV 5))
-
-> (parse '{{fn {a} {+ a 1}} 1})
-- : ExprC
-(appC
- (lamC
-  '(a)
-  (appC (idC '+) (list (idC 'a) (numV 1))))
- (list (numV 1)))
-> |#
 
 ; returns extended environment including given symbols/ExprC's
-(: extend-env (-> (Listof Symbol) (Listof ExprC) Env Env))
+(: extend-env (-> (Listof Symbol) (Listof Value) Env Env))
 (define (extend-env symbols args env)
   (cond
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
-    [(bindingExists? (first symbols) env) (error "Binding already exists DXUQ")]
-    [else (cons (Bind (first symbols) (interp (first args) env)) (extend-env (rest symbols) (rest args) env))]))
-
-
-; checks to see if there is a binding in the env for the given symbol
-(: bindingExists? (-> Symbol Env Boolean))
-(define (bindingExists? sym env)
-  (cond
-    [(empty? env) #f]
-    [(equal? (Bind-name (first env)) sym) #t]
-    [else (bindingExists? sym (rest env))]))
+    ;[(bindingExists? (first symbols) env) (error "Binding already exists DXUQ")]
+    [else (cons (Bind (first symbols) (first args)) (extend-env (rest symbols) (rest args) env))]))
 
 
 ; interprets a primV into a value
@@ -192,7 +170,8 @@
   (match s
     [(? real? n) (numV n)]
     [(? string? s) (strV s)]
-    [(list 'fn (list ids ...) expr) #:when (equal? (remove-duplicates ids) ids)
+    [(list 'fn (list ids ...) expr) #:when
+                                    (and (equal? (remove-duplicates ids) ids) (andmap (lambda (a) (symbol? a)) ids))
                                     (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
@@ -289,8 +268,6 @@
 
 (check-exn (regexp (regexp-quote "Different numbers of ids and args DXUQ"))
            (lambda () {top-interp '{{fn {a} {+ a 1}} 1 2}}))
-(check-exn (regexp (regexp-quote "Binding already exists DXUQ"))
-           (lambda () {top-interp '{{fn {a} {{fn {a} {+ 1 a}} 2}} 1}}))
 (check-exn (regexp (regexp-quote "Environment binding not found DXUQ"))
            (lambda () {top-interp '{{fn {a} {+ b 1}} 1}}))
 
@@ -318,11 +295,33 @@
 (check-equal? (top-interp '+) "#<primop>")
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '(fn (x x) 3)}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (3 4 5) 6)}))
+(check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
+(check-equal? (interp (parse '((fn (minus) (minus 2 1)) (fn (x y) (- x y)))) top-env) (numV 1))
+(check-equal? (interp (parse '((fn (seven) (seven))
+                               ((fn (minus) (minus 2 1)) (fn (x y) (- x y))))) top-env) (numV 1))
+(check-equal? (interp (parse '((fn (seven) (seven)) 1)) '()) (numV 1))
+(check-equal? (top-interp '((fn (+) (* + +)) 14)) "196")
+
+;while evaluating (top-interp (quote ((fn (+) (* + +)) 14))):
+;  Binding already exists DXUQ
+;Saving submission with errors.
 
 ; expected exception with message containing DXUQ on test expression: '(parse '(fn (x x) 3))
 ; Saving submission with errors.
 
+;expected exception with message containing DXUQ on test expression: '(parse '(fn (3 4 5) 6))
+;Saving submission with errors.
+
+
+;while evaluating (top-interp (quote ((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b)))))):
+;  match: no matching clause for '(cloV (appC (idC '+) (list (idC 'a) (appC (idC '*) (list (numV -1) (idC ...
+;Saving submission with errors.
+
 ; (parse '{{g} 15})
+
+; '((fn (minus) (fn () (minus (+ 3 10) (* 2 3)))) (fn (x y) (+ x (* -1 y))))
 
 
 ;(check-equal? (top-interp '{fn {a b} {+ a b}}) "\"#<procedure>\"")
