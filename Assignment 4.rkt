@@ -88,7 +88,10 @@
           [else (interp-leq params)])]
     ['equal? (cond
           [(not (equal? (length params) 2)) (error "Invalid number of arguments for equal? DXUQ")]
-          [else (boolV (equal? (first params) (second params)))])]
+          [else (cond
+                  [(or (primV? (first params)) (primV? (second params))) (boolV false)]
+                  [(or (cloV? (first params)) (cloV? (second params))) (boolV false)]
+                  [else (boolV (equal? (first params) (second params)))])])]
     ['error (cond
           [(not (equal? (length params) 1)) (error "Invalid number of arguments for equal? DXUQ")]
           [else (error (string-append "User Error DXUQ: " (serialize (first params))))])]))
@@ -298,6 +301,8 @@
            (lambda () {top-interp '(fn (3 4 5) 6)}))
 (check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
 (check-equal? (interp (parse '((fn (minus) (minus 2 1)) (fn (x y) (- x y)))) top-env) (numV 1))
+(check-equal? (interp-primV 'equal? (list (primV '+) (primV '+))) (boolV false))
+(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (cloV (numV 1) '(+) '()))) (boolV false))
 ;(check-equal? (interp (parse '((fn (seven) (seven))
 ;                               ((fn (minus) (minus 2 1)) (fn (x y) (- x y))))) top-env) (numV 1))
 ;(check-equal? (interp (parse '((fn (seven) (seven)) 1)) '()) (numV 1))
