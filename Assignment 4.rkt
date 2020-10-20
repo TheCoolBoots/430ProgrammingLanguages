@@ -45,9 +45,9 @@
     [(appC body params)
      (define interpretedBody (interp body env))
      (match interpretedBody
-       [(cloV clo-body ids old-env)
-        (define interpretedParams (map (lambda ([param : ExprC]) (interp param old-env)) params))
-        (define new-env (extend-env ids interpretedParams old-env))
+       [(cloV clo-body ids clo-env)
+        (define interpretedParams (map (lambda ([param : ExprC]) (interp param env)) params))
+        (define new-env (extend-env ids interpretedParams clo-env))
         (interp clo-body new-env)]
        [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env)) params))]
        [other (error "Applied arguments to non-function DXUQ")])]
@@ -87,10 +87,9 @@
           [else (interp-leq params)])]
     ['equal? (cond
           [(not (equal? (length params) 2)) (error "Invalid number of arguments for equal? DXUQ")]
-          [else (cond
-                  [(or (primV? (first params)) (primV? (second params))) (boolV false)]
-                  [(or (cloV? (first params)) (cloV? (second params))) (boolV false)]
-                  [else (boolV (equal? (first params) (second params)))])])]
+          [(or (cloV? (first params)) (cloV? (second params))
+               (primV? (first params)) (primV? (second params))) (boolV #f)]
+          [else (boolV (equal? (first params) (second params)))])] 
     ['error (cond
           [(not (equal? (length params) 1)) (error "Invalid number of arguments for equal? DXUQ")]
           [else (error (string-append "User Error DXUQ: " (serialize (first params))))])]))
@@ -220,17 +219,12 @@
 (check-equal? (interp-cond (boolV #t) (numV 1) (numV 2) '()) (numV 1))
 (check-equal? (interp-cond (boolV #f) (numV 1) (numV 2) '()) (numV 2))
 
-
 (check-equal? (extend-env '(a b c) (list (numV 1) (numV 2) (numV 3)) '())
               (list (Bind 'a (numV 1)) (Bind 'b (numV 2)) (Bind 'c (numV 3))))
-;(check-equal? (gen-cloV (appC (lamC '(a) (idC 'a)) (list (numV 3))) '())
-;              (cloV (lamC '(a) (idC 'a)) (list (numV 3)) (list (Bind 'a (numV 3)))))
-
 
 (check-equal? (interp (idC 's) (list (Bind 's (numV 3)))) (numV 3))
 (check-equal? (interp (idC 's) (list (Bind 's (strV "hi")))) (strV "hi"))
 (check-equal? (interp (idC 's) (list (Bind 's (boolV #t)))) (boolV #t))
-
 
 (check-equal? (top-interp '{if {<= 3 5} 3 5}) "3")
 (check-equal? (top-interp '{if true 3 5}) "3")
@@ -251,7 +245,6 @@
            (lambda () {top-interp '{error 1 1 2}}))
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '{+ let if}}))
-
 
 (check-exn (regexp (regexp-quote "Invalid operands for DXUQ +"))
            (lambda () {top-interp '{+ true 5}}))
@@ -280,7 +273,6 @@
 (check-equal? (top-interp '{equal? "hello" "hello"}) "true")
 (check-equal? (top-interp '{equal? "hello" "bye"}) "false")
 {check-equal? (top-interp '{let {b = 5} {a = 5} in {+ a b}}) "10"}
-;(check-equal? (top-interp '{let {b = 5 4} {a = b} in {+ a b}}) "\"10\"")
 (check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
            (lambda () {top-interp '{let {a = 12 1} in {+ a 2}}}))
 (check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
@@ -302,12 +294,9 @@
 (check-equal? (interp (parse '((fn (minus) (minus 2 1)) (fn (x y) (- x y)))) top-env) (numV 1))
 (check-equal? (interp-primV 'equal? (list (primV '+) (primV '+))) (boolV false))
 (check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (cloV (numV 1) '(+) '()))) (boolV false))
-;(check-equal? (interp (parse '((fn (seven) (seven))
-;                               ((fn (minus) (minus 2 1)) (fn (x y) (- x y))))) top-env) (numV 1))
-;(check-equal? (interp (parse '((fn (seven) (seven)) 1)) '()) (numV 1))
-;(check-equal? (top-interp '((fn (+) (* + +)) 14)) "196")
 
-#|
-while evaluating (top-interp (quote ((fn (empty) ((fn (cons) ((fn (empty?) ((fn (first) ((fn (rest) ((fn (Y) ((fn (length) ((fn (addup) (addup (cons 3 (cons 17 empty)))) (Y (fn (addup) (fn (l) (if ...
-Saving submission with errors.
-|#
+
+(check-equal? (interp-primV 'equal? (list (primV '+) (primV '+))) (boolV #f))
+(check-equal? (interp-primV 'equal? (list (primV '+) (numV '3))) (boolV #f)) 
+(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (cloV (numV 1) '(+) '()))) (boolV #f))
+(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (numV 1))) (boolV #f)) 
