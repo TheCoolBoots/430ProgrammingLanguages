@@ -79,15 +79,28 @@
      + - * / = equal? <=
      if)
 
-;; rewrite one in DXUQ4
-'{fn {f} {fn {x} {f x}}}
+  '{let
+    ;; rewrite one in DXUQ4
+    {one = {fn {f}
+             {fn {x} {f x}}}}
+    
+    ;; rewrite two in DXUQ4
+    {two = fn {f}
+            {fn {x} {f {f x}}}}  
 
-;; rewrite two in DXUQ4
-'{fn {f} {fn {x} {f {f x}}}}  
+    ;; rewrite add in DXUQ4
+    {add = {fn {nlf1}
+             {fn {nlf2}
+               {fn {f}
+                 {fn {x} {{nlf1 f} {{nlf2 f} x}}}}}}}
 
-;; rewrite add in DXUQ4
-'{fn {nlf1} {fn {nlf2} {fn {f} {fn {x} {{nlf1 f} {{nlf2 f} x}}}}}}
-  
+    ;; write three
+    {three = {fn {f}
+               {fn {x} {{{{add two} one} f} x}}}}
+    
+    in
+    {fn {x} {three {* x 2} {x}}}}
+
   (define-syntax my-let
     (syntax-rules (in =)
       [(my-let [v = e] ... in eb)
