@@ -2,10 +2,6 @@
 
 (require rackunit)
 
-(define (f x)
-  (lambda (a) (lambda (b) (x a b))))
-(check-equal? (((f +) 1) 2) 3)
-
 
 ;;takes a func and arg, applies func to arg
 (define one (lambda (f) (lambda (arg) (f arg))))
@@ -30,8 +26,17 @@
 (check-equal? ((zero symbol?) 123) 123)
 
 
+;;applies function to argument one more time
+(define add1 (lambda (f) (f f)))
+
+(define a ((add1 two) (lambda (x) (+ x 1))))
+(check-equal? (a 1) 5)
+
+
 ;;takes two funcs, returns func that applies first func to second func
-;(define add
+(define add (lambda (f) (lambda (f2) (f f2))))
+
+
 
 
 ;;takes two args, returns the first arg
@@ -45,7 +50,11 @@
 
 (check-equal? ((fals 1) 2) 2)
 
+;;takes three arguments, returns either sec or third arg
+(define if (lambda (a) (lambda (b) (lambda (c) ((a b) c)))))
 
+(check-equal? (((if tru) 1) 2) 1)
+(check-equal? (((if fals) 1) 2) 2)
 
 
 
