@@ -63,7 +63,6 @@
   (cond
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
-    ;[(bindingExists? (first symbols) env) (error "Binding already exists DXUQ")]
     [else (cons (Bind (first symbols) (first args)) (extend-env (rest symbols) (rest args) env))]))
 
 
@@ -308,34 +307,7 @@
 ;(check-equal? (interp (parse '((fn (seven) (seven)) 1)) '()) (numV 1))
 ;(check-equal? (top-interp '((fn (+) (* + +)) 14)) "196")
 
-;while evaluating (top-interp '((fn (empty) ((fn (cons)
-;((fn (empty?) ((fn (first) ((fn (rest) ((fn (Y) ((fn (length)
-;((fn (addup) (addup (cons 3 (cons 17 empty)))) (Y (fn (addup) (fn (l) (if ...
-;Saving submission with errors.
-
-;while evaluating (top-interp (quote ((fn (+) (* + +)) 14))):
-;  Binding already exists DXUQ
-;Saving submission with errors.
-
-; expected exception with message containing DXUQ on test expression: '(parse '(fn (x x) 3))
-; Saving submission with errors.
-
-;expected exception with message containing DXUQ on test expression: '(parse '(fn (3 4 5) 6))
-;Saving submission with errors.
-
-
-;while evaluating (top-interp (quote ((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b)))))):
-;  match: no matching clause for '(cloV
-;(appC (idC '+) (list (idC 'a) (appC (idC '*) (list (numV -1) (idC ...
-;Saving submission with errors.
-
-; (parse '{{g} 15})
-
-; '((fn (minus) (fn () (minus (+ 3 10) (* 2 3)))) (fn (x y) (+ x (* -1 y))))
-
-
-;(check-equal? (top-interp '{fn {a b} {+ a b}}) "\"#<procedure>\"")
-
-
-; expected exception with message containing DXUQ on test expression: '(parse '(+ if var))
-; Saving submission with errors.
+#|
+while evaluating (top-interp (quote ((fn (empty) ((fn (cons) ((fn (empty?) ((fn (first) ((fn (rest) ((fn (Y) ((fn (length) ((fn (addup) (addup (cons 3 (cons 17 empty)))) (Y (fn (addup) (fn (l) (if ...
+Saving submission with errors.
+|#
