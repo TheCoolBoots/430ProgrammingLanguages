@@ -99,10 +99,9 @@
                {fn {x} {{{{add two} one} f} x}}}}
     
     in
-    {fn {x} {three {* x 2} {x}}}}
+    {equal? {{three {* x 2}} 2} 8}}
 
   (define-syntax my-let
     (syntax-rules (in =)
       [(my-let [v = e] ... in eb)
        ((lambda (v ...) eb) e ...)])))
-
