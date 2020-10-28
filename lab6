@@ -1,0 +1,98 @@
+#lang typed/racket
+(require typed/rackunit)
+
+
+(define-type ExprC (U idC appC condC lamC Value))
+(struct idC ([s : Symbol]) #:transparent)
+(struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
+(struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
+(struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
+
+(define-type Value (U numV strV primV boolV cloV))
+(struct numV  ([val : Real]) #:transparent)
+(struct strV  ([val : String]) #:transparent)
+(struct primV ([op : Symbol]) #:transparent)
+(struct boolV ([val : Boolean]) #:transparent)
+(struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
+
+
+(define-type Env (Listof Bind))
+(struct Bind ([name : Symbol] [val : Value]) #:transparent)
+
+
+(define symbols '(a b c d e f g h))
+
+
+;; returns a random symbol out of the list "symbols"
+(: random-symbol (-> Symbol))
+(define (random-symbol)
+  (randHelper (random 8) symbols))
+
+
+;; helper function for random-symbol; returns Symbol based on rndNum
+(: randHelper (-> Real (Listof Symbol) Symbol))
+(define (randHelper rndNum symList)
+  (cond
+    [(< rndNum 1) (first symList)]
+    [else (randHelper (- rndNum 1) (rest symList))]))
+
+
+;; returns a random non-self-referential expression
+(define (random-base-term) : ExprC
+  (match (random 4)
+    [0 (numV (random 0 1000))]
+    [1 (strV (~v (random 0 1000)))]
+    [2 (boolV (< (random 0 2) 1))]
+    [3 (idC (random-symbol))]))
+
+
+;; returns a random term with given maximum depth and max arity 3
+(: random-term (-> Integer ExprC))
+(define (random-term depth)
+  (cond
+    [(equal? depth 0) (random-base-term)]
+    [else (match (random 0 3)
+            [0 (appC (random-term (random depth)) (gen-term-list depth (random 4)))]
+            [1 (condC (random-term (random depth)) (random-term (random depth)) (random-term (random depth)))]
+            [2 (lamC (gen-sym-list (random 4)) (random-term (random depth)))])]))
+
+
+;; returns a list of random terms with given arity
+(: gen-term-list (-> Integer Integer (Listof ExprC)))
+(define (gen-term-list maxDepth randNum)
+  (cond
+    [(equal? randNum 0) '()]
+    [else (cons (random-term (random maxDepth)) (gen-term-list maxDepth (- 1 randNum)))]))
+
+
+;; returns a list of random symbols with given arity
+(: gen-sym-list (-> Integer (Listof Symbol)))
+(define (gen-sym-list randNum)
+  (cond
+    [(equal? randNum 0) '()]
+    [else (cons (random-symbol) (gen-sym-list (- randNum 1)))]))
+
+
+(define (unparse [exp : ExprC]) : Sexp
+  (match exp
+    [(numV n) n]
+    [(idC s) s]
+    [(strV s) s]
+    [(boolV val) (cond
+                   [val 'true]
+                   [else 'false])]
+    [(condC if then else) (cons 'if (cons (unparse if) (cons (unparse then) (cons (unparse else) '()))))]
+    [(appC fun l) (cons (unparse fun) (map (lambda (x) (unparse x)) l))]
+    [(lamC args body) (cons 'fn (cons args (cons (unparse body) '())))]))
+
+
+(check-equal? (unparse (numV 5)) 5)
+(check-equal? (unparse (idC 'a)) 'a)
+(check-equal? (unparse (strV "world")) "world")
+(check-equal? (unparse (condC (numV 0) (idC 'a) (idC 'b))) '(if 0 a b))
+(check-equal? (unparse (appC (idC 'a) (list (numV 1) (numV 2)))) '(a 1 2))
+(check-equal? (unparse (lamC (list 'a 'b 'c) (numV 0))) '(fn (a b c) 0))
+
+
+(define (quiz) : Sexp
+  (unparse (random-term (random 3))))

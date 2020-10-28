@@ -1,0 +1,9 @@
+#lang typed/racket
+(require typed/rackunit)
+
+
+(define-type ExprC (U idC appC condC lamC Value))
+(struct idC ([s : Symbol]) #:transparent)
+(struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
+(struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
+(struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
