@@ -179,6 +179,8 @@
     [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
     [other (error "Invalid format DXUQ")]))
 
+
+; checks to see if an ID is not a reserved DXUQ4 keyword
 (: validID? (-> Symbol Boolean))
 (define (validID? sym)
   (cond
