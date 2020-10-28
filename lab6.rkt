@@ -2,50 +2,53 @@
 
 (require typed/rackunit)
 
-(define-type ExprC (U numC stringC ifC idC fnC appC lamC))
+(define-type ExprC (U numC stringC ifC idC appC lamC))
 (struct numC ([n : Real]) #:transparent)
 (struct stringC ([s : String]) #:transparent)
 (struct ifC ([test : ExprC] [then : ExprC] [else : ExprC])  #:transparent)
-(struct idC ([s : Symbol])                                      #:transparent)
-(struct fnC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
+(struct idC ([s : Symbol]) #:transparent)                                     
 (struct appC ([fun : ExprC] [l : (Listof ExprC)]) #:transparent)
 (struct lamC ([arg : (Listof Symbol)] [body : ExprC]) #:transparent)
 
 (define syms (list 'a 'b 'c 'd 'e 'f 'g 'h))
 
+;;gets random symbol from list syms
 (define (random-symbol) : Symbol
-  (define rand (random 8))
-  (list-ref syms rand))
+  (list-ref syms (random 8)))
 
+
+;;gets a random base expression
 (define (random-base-term) : ExprC
-  (define rand2 (random 3))
-  (cond
-    [(= 0 rand2) (numC (random 100))]
-    [(= 1 rand2) (stringC "hello")]
-    [else (idC (random-symbol))]))
+  (match (random 3)
+    [0 (numC (random 100))]
+    [1 (stringC "hello")]
+    [2 (idC (random-symbol))]))
 
-
-(define (random-term [depth : Real]) : ExprC
-  (define arity (random 4))
+;;takes a max-depth and returns an expression
+(define (random-term [depth : Integer]) : ExprC
   (cond
-    [(= depth 0) (random-base-term)]
+    [(equal? depth 0) (random-base-term)]
     [else (match (random 3)
-            [0 (cond
-                 [(= 0 arity) (appC (random-term (- depth 1)) '())]
-                 [(= 1 arity) (appC (random-term (- depth 1)) (list (random-term (- depth 1))))]
-                 [(= 2 arity) (appC (random-term (- depth 1)) (list (random-term (- depth 1))
-                                                                    (random-term (- depth 1))))]
-                 [else (appC (random-term (- depth 1)) (list (random-term (- depth 1))
-                                                             (random-term (- depth 1))
-                                                             (random-term (- depth 1))))])]
-            [1 (cond
-                 [(= 0 arity) (lamC '() (random-term (- depth 1)))]
-                 [(= 1 arity) (lamC (list (random-symbol)) (random-term (- depth 1)))]
-                 [(= 2 arity) (lamC (list (random-symbol) (random-symbol)) (random-term (- depth 1)))]
-                 [else (lamC (list (random-symbol) (random-symbol) (random-symbol)) (random-term (- depth 1)))])]
+            [0 (appC (random-term (- depth 1)) (get-terms (random 4) (- depth 1)))]
+            [1 (lamC (get-syms (random 4)) (random-term (- depth 1)))]
             [2 (ifC (random-term (- depth 1)) (random-term (- depth 1)) (random-term (- depth 1)))])]))
 
 
+;;takes arity and depth and returns list of terms with length arity
+(define (get-terms [arity : Integer] [depth : Integer]) : (Listof ExprC)
+  (cond
+    [(equal? arity 0) '()]
+    [else (cons (random-term (- depth 1)) (get-terms (- arity 1) depth))]))
+
+
+;;creates list of symbols of length arity
+(define (get-syms [arity : Real]) : (Listof Symbol)
+  (cond
+    [(equal? arity 0) '()]
+    [else (cons (random-symbol) (get-syms (- arity 1)))]))
+
+
+;;takes an expression and returns an s-expr
 (define (unparse [exp : ExprC]) : Sexp
   (match exp
     [(numC n) n]
@@ -64,7 +67,11 @@
 (check-equal? (unparse (lamC (list 'a 'b 'c) (numC 0))) '(fn (a b c) 0))
 
 
-(define (quiz) : Sexp
-  (unparse (random-term (random 3))))
+;;creates random expression, prints concrete syntax, returns expr
+(define (quiz) : ExprC
+  (define expr (random-term (random 3)))
+  (print (unparse expr))
+  expr)
 
-
+;;answer to quiz
+(define secret (quiz))
