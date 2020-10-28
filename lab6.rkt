@@ -30,7 +30,7 @@
     [(equal? depth 0) (random-base-term)]
     [else (match (random 3)
             [0 (appC (random-term (- depth 1)) (get-terms (random 4) (- depth 1)))]
-            [1 (lamC (get-syms (random 4)) (random-term (- depth 1)))]
+            [1 (lamC (get-syms (- depth 1)) (random-term (- depth 1)))]
             [2 (ifC (random-term (- depth 1)) (random-term (- depth 1)) (random-term (- depth 1)))])]))
 
 
