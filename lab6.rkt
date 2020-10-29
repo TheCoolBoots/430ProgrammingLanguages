@@ -27,10 +27,11 @@
 (define (random-term [depth : Real]) : ExprC
   (cond
     [(= depth 0) (random-base-term)]
-    [else (match (random 0 3)
+    [else (match (random 0 6)
             [0 (AppC (random-term (- depth 1)) (list (random-term(random 0 3))))]
             [1 (CondC (random-term (- depth 1)) (random-term (- depth 1)) (random-term (- depth 1)))]
-            [2 (LamC (list (random-term(random 0 3))) (random-term (- depth 1)))])]))
+            [2 (LamC (list (random-term(random 0 3))) (random-term (- depth 1)))]
+            [else (random-base-term)])]))
 
 ;; takes in a parsed expression and returns the concrete syntax
 (define (unparse [exp : ExprC]) : Sexp
@@ -52,8 +53,8 @@
 
 ;; quiz
 (define (quiz) : ExprC
-  (define expr (random-term (random 0 3)))
+  (define expr (random-term 3))
   (printf (~v (unparse expr)))
   expr)
 
-(define secret (quiz))
+;(define secret (quiz))
