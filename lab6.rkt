@@ -27,18 +27,20 @@
 ;;takes a max-depth and returns an expression
 (define (random-term [depth : Integer]) : ExprC
   (cond
-    [(equal? depth 0) (random-base-term)]
-    [else (match (random 3)
+    [(<= depth 0) (random-base-term)]
+    [else (match (random 6)
             [0 (appC (random-term (- depth 1)) (get-terms (random 4) (- depth 1)))]
-            [1 (lamC (get-syms (- depth 1)) (random-term (- depth 1)))]
-            [2 (ifC (random-term (- depth 1)) (random-term (- depth 1)) (random-term (- depth 1)))])]))
+            [1 (lamC (get-syms (random 4)) (random-term (- depth 1)))]
+            [2 (ifC (random-term (- depth 1)) (random-term (- depth 1)) (random-term (- depth 1)))]
+            [other (random-base-term)])]))
+
 
 
 ;;takes arity and depth and returns list of terms with length arity
 (define (get-terms [arity : Integer] [depth : Integer]) : (Listof ExprC)
   (cond
     [(equal? arity 0) '()]
-    [else (cons (random-term (- depth 1)) (get-terms (- arity 1) depth))]))
+    [else (cons (random-term (- depth 1)) (get-terms (- arity 1) (- depth 1)))]))
 
 
 ;;creates list of symbols of length arity
@@ -69,9 +71,10 @@
 
 ;;creates random expression, prints concrete syntax, returns expr
 (define (quiz) : ExprC
-  (define expr (random-term (random 3)))
+  (define expr (random-term 3))
   (print (unparse expr))
   expr)
 
 ;;answer to quiz
 (define secret (quiz))
+
