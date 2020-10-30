@@ -14,26 +14,78 @@
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 
 (define-type Env (Listof Bind))
-(struct Bind ([name : Symbol] [val : Value]) #:transparent)
+(struct Bind ([name : Symbol] [location : Integer]) #:transparent)
 
-(define-type Value (U numV strV primV boolV cloV))
+(define-type Value (U numV strV primV boolV cloV boxV))
 (struct numV  ([val : Real]) #:transparent)
 (struct strV  ([val : String]) #:transparent)
 (struct primV ([op : Symbol]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
+(struct boxV ([loc : Integer]))
 
-(define top-env (list (Bind 'true (boolV #t))
-                      (Bind 'false (boolV #f))
-                      (Bind '+ (primV '+))
-                      (Bind '- (primV '-))
-                      (Bind '* (primV '*))
-                      (Bind '/ (primV '/))
-                      (Bind '<= (primV '<=))
-                      (Bind 'equal? (primV 'equal?))
-                      (Bind 'error (primV 'error))))
+(define top-env (list (Bind 'true 0)
+                      (Bind 'false 1)
+                      (Bind '+ 2)
+                      (Bind '- 3)
+                      (Bind '* 4)
+                      (Bind '/ 5)
+                      (Bind '<= 6)
+                      (Bind 'equal? 7)
+                      (Bind 'error 8)))
 
-(define reserved '(fn let if =))
+(define-type Store (Mutable-HashTable Integer Value))
+(define top-store
+  (ann (make-hash
+        (list (cons 0 (boolV #t))
+              (cons 1 (boolV #f))
+              (cons 2 (primV '+))
+              (cons 3 (primV '-))
+              (cons 4 (primV '*))
+              (cons 5 (primV '/))
+              (cons 6 (primV '<=))
+              (cons 7 (primV 'equal?))
+              (cons 8 (primV 'error))))
+       Store))
+
+(define lastStoSpot 8)
+
+(define reserved '(:= if let = in fn))
+
+
+; retrieves location of given symbol in Store
+(: lookup (-> Symbol Env Integer))
+(define (lookup sym env)
+  (cond
+    [(empty? env) (error "Symbol not found in Env DXUQ5")]
+    [(equal? (Bind-name (first env)) sym) (Bind-location (first env))]
+    [else (lookup sym (rest env))]))
+
+
+; returns the value stored at the given location in the Store
+(: fetch (-> Integer Store Value))
+(define (fetch loc sto)
+  (hash-ref sto loc))
+
+
+; creates a new memory location and stores the given value in it
+(: create-box (-> Value boxV))
+(define (create-box val)
+  (define lastStoSpot (+ lastStoSpot 1))
+  (hash-set lastStoSpot val)
+  (boxV lastStoSpot))
+
+
+; reads the value of the given Box
+(: read-box (-> boxV Value))
+(define (read-box box)
+  (fetch (boxV-loc box)))
+
+
+; sets the value in the given box to new value
+(: set-box (-> boxV Value String))
+(define (set-box box newVal)
+  (hash-set (boxV-loc box) 
 
 
 ; interprets a DXUQ expression into a Value
