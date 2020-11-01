@@ -56,7 +56,7 @@
 (define (interp exp env sto)
   (match exp
     [(idC sym) (lookup-env sym env sto)]
-    ;[(condC if then else) (interp-cond if then else env)]
+    [(condC if then else) (interp-cond if then else env sto)]
     [(appC body params)
      (define interpretedBody (interp body env sto))
      (match interpretedBody
@@ -66,7 +66,7 @@
         (interp clo-body new-env sto)]
        [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env sto)) params))]
        [other (error "Applied arguments to non-function DXUQ")])]
-    ;[(lamC ids body) (cloV body ids env)]
+    [(lamC ids body) (cloV body ids env)]
     [(numV val) exp]
     [(strV val) exp]
     [(boolV val) exp]
@@ -80,8 +80,9 @@
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else
+     (define index (get-next-index sto))
      (allocate sto args)
-     (cons (Bind (first symbols) (get-next-index sto)) (extend-env (rest symbols) (rest args) env sto))]))
+     (cons (Bind (first symbols) index) (extend-env (rest symbols) (rest args) env sto))]))
 
 ; gets the next index in the hash table
 (: allocate (-> Store (Listof Value) Integer))
