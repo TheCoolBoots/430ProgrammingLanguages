@@ -34,7 +34,7 @@
                       (Bind 'false 8)
                       (Bind 'error 9)))
 
-(define-type Store (Mutable-HashTable Real Value))
+(define-type Store (Mutable-HashTable Integer Value))
 (define top-store
   (ann (make-hash
         (list (cons 1 (primV '+))
@@ -56,43 +56,73 @@
 (define (interp exp env sto)
   (match exp
     [(idC sym) (lookup-env sym env sto)]
-    ;[(condC if then else) (interp-cond if then else env)]
+    [(condC if then else) (interp-cond if then else env sto)]
     [(appC body params)
      (define interpretedBody (interp body env sto))
      (match interpretedBody
-       ;[(cloV clo-body ids clo-env)
-       ; (define interpretedParams (map (lambda ([param : ExprC]) (interp param env)) params))
-       ; (define new-env (extend-env ids interpretedParams clo-env))
-       ;     for each pair of id & param
-                       ; if env[id] != null
-                       ;      update store location to param
-                       ; else
-                       ;      get next open store location
-                       ;      add location to env
-                       ;      add param @ loc in store
-                       ; if id not found
-                       ;      get next open store location loc
-                       ;      add id with loc to Env
-                       ;      add param @ loc in store
-       ; (interp clo-body new-env)]
+       [(cloV clo-body ids clo-env)
+        (define interpretedParams (map (lambda ([param : ExprC]) (interp param env sto)) params))
+        (define new-env (extend-env ids interpretedParams clo-env sto))
+        (interp clo-body new-env sto)]
        [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env sto)) params))]
        [other (error "Applied arguments to non-function DXUQ")])]
     [(lamC ids body) (cloV body ids env)]
-    [(assignC id body) (numV 0)
-                       ; if env[id] != null
-                       ;      update store location to body
-                       ; else
-                       ;      get next open store location
-                       ;      add location to env
-                       ;      add enterpreted body @ loc in store
-                       ; if id not found
-                       ;      get next open store location loc
-                       ;      add id with loc to Env
-                       ;      add interpreted body @ loc in store
-    ]
+    [(assignC id body) (interp-assignC exp env sto)]
     [(numV val) exp]
     [(strV val) exp]
     [(boolV val) exp]))
+
+
+; returns extended environment including given symbols/ExprC's
+(: extend-env (-> (Listof Symbol) (Listof Value) Env Store Env))
+(define (extend-env symbols args env sto)
+  (cond
+    [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
+    [(empty? symbols) env]
+    [else (define nextIndex (get-next-index sto))
+          (hash-set sto nextIndex (first args))
+          (cons (Bind (first symbols) nextIndex) (extend-env (rest symbols) (rest args) env sto))]))
+
+
+; interprets a assignC into a value
+(: interp-assignC (-> assignC Env Store Value))
+(define (interp-assignC expr env sto)
+  ; get next store location
+  ; add id to env
+  ; set store[loc] = exp
+  (define nextOpenLocation (get-next-index sto))
+  (define newEnv (cons (Bind (assignC-id expr) nextOpenLocation) env))
+  (define interpretedBody (interp (assignC-body expr) newEnv sto))
+  (hash-set sto nextOpenLocation interpretedBody)
+  (cloV interpretedBody (list (assignC-id expr)) newEnv))
+
+
+; gets the location associated with given id in Env
+(: lookup (-> Symbol Env Integer))
+(define (lookup sym env)
+  (cond
+    [(empty? env) (error "Symbol not found in Environment")]
+    [(equal? (Bind-name (first env)) sym) (Bind-loc (first env))]
+    [else (lookup sym (rest env))]))
+    
+
+; returns #t if symbol exists in Env, #f otherwise
+(: in-env? (-> Symbol Env Boolean))
+(define (in-env? sym env)
+  (cond
+    [(empty? env) #f]
+    [(equal? (Bind-name (first env)) sym) #t]
+    [else (in-env? sym (rest env))]))
+
+
+; interprets a DXUQ if statement and returns a Value
+(: interp-cond (-> ExprC ExprC ExprC Env Store Value))
+(define (interp-cond if then else env sto)
+  (match (interp if env sto)
+    [(boolV val) (cond
+                   [val (interp then env sto)]
+                   [else (interp else env sto)])]
+    [other (error "Invalid operands for DXUQ if")]))
 
 
 ; interprets a primV into a value

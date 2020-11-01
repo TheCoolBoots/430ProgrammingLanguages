@@ -19,22 +19,11 @@
 (define-type Value (U numV strV primV boolV cloV))
 (struct numV  ([val : Real]) #:transparent)
 (struct strV  ([val : String]) #:transparent)
-(struct primV ([op : Symbol]) #:transparent)
+(struct primV ([op : (-> (Listof Value) Value)]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
 
-(define top-env (list (Bind 'true (boolV #t))
-                      (Bind 'false (boolV #f))
-                      (Bind '+ (primV '+))
-                      (Bind '- (primV '-))
-                      (Bind '* (primV '*))
-                      (Bind '/ (primV '/))
-                      (Bind '<= (primV '<=))
-                      (Bind 'equal? (primV 'equal?))
-                      (Bind 'error (primV 'error))))
-
 (define reserved '(fn let if =))
-
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Value))
@@ -42,19 +31,20 @@
   (match exp
     [(idC sym) (lookup-env sym env)]
     [(condC if then else) (interp-cond if then else env)]
-    [(appC body params)
+    [(appC body args)
      (define interpretedBody (interp body env))
      (match interpretedBody
        [(cloV clo-body ids clo-env)
-        (define interpretedParams (map (lambda ([param : ExprC]) (interp param env)) params))
-        (define new-env (extend-env ids interpretedParams clo-env))
+        (define interpretedArgs (map (lambda ([arg : ExprC]) (interp arg env)) args))
+        (define new-env (extend-env ids interpretedArgs clo-env))
         (interp clo-body new-env)]
-       [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env)) params))]
+       [(primV function) (function (map (lambda ([arg : ExprC]) (interp arg env)) args))]
        [other (error "Applied arguments to non-function DXUQ")])]
     [(lamC ids body) (cloV body ids env)]
-    [(numV val) exp]
-    [(strV val) exp]
-    [(boolV val) exp]))  
+    [(boolV val) exp]
+    [(numV n) exp]
+    [(strV str) exp]))
+
 
 
 ; returns extended environment including given symbols/ExprC's
@@ -66,83 +56,82 @@
     [else (cons (Bind (first symbols) (first args)) (extend-env (rest symbols) (rest args) env))]))
 
 
-; interprets a primV into a value
-(: interp-primV (-> Symbol (Listof Value) Value))
-(define (interp-primV primSymbol params)
-  (match primSymbol
-    ['+ (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for + DXUQ")]
-          [else (interp-add params)])]
-    ['- (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for - DXUQ")]
-          [else (interp-sub params)])]
-    ['* (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for * DXUQ")]
-          [else (interp-mult params)])]
-    ['/ (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for / DXUQ")]
-          [else (interp-div params)])]
-    ['<= (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for <= DXUQ")]
-          [else (interp-leq params)])]
-    ['equal? (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for equal? DXUQ")]
-          [(or (cloV? (first params)) (cloV? (second params))
-               (primV? (first params)) (primV? (second params))) (boolV #f)]
-          [else (boolV (equal? (first params) (second params)))])] 
-    ['error (cond
-          [(not (equal? (length params) 1)) (error "Invalid number of arguments for equal? DXUQ")]
-          [else (error (string-append "User Error DXUQ: " (serialize (first params))))])]))
+; interprets user-defined error
+(: interp-error (-> (Listof Value) numV))
+(define (interp-error args)
+  (cond
+    [(not (equal? (length args) 1)) (error "Invalid number of arguments for error DXUQ")]
+    [else (error (string-append "User Error DXUQ: " (serialize (first args))))]))
+
+
+; interprets equal?
+(: interp-equal (-> (Listof Value) boolV))
+(define (interp-equal args)
+  (cond
+    [(not (equal? (length args) 2)) (error "Invalid number of arguments for equal? DXUQ")]
+    [(or (cloV? (first args)) (cloV? (second args))
+         (primV? (first args)) (primV? (second args))) (boolV #f)]
+    [else (boolV (equal? (first args) (second args)))]))
 
 
 ; interprets addition primitive
 (: interp-add (-> (Listof Value) numV))
 (define (interp-add args)
   (cond
-    [(empty? args) (numV 0)]
+    [(not (equal? (length args) 2)) (error "Invalid number of arguments for + DXUQ")]
     [else (match (first args)
-            [(numV n) (numV (+ n (numV-val (interp-add (rest args)))) )]
-            [other (error "Invalid operands for DXUQ +")] )] ))
+            [(numV n) (match (second args)
+                        [(numV m) (numV (+ n m))]
+                        [other (error "Invalid operands for + DXUQ")])]
+            [other (error "Invalid operands for + DXUQ")])]))
 
 
 ; interprets subtraction primitive
 (: interp-sub (-> (Listof Value) numV))
 (define (interp-sub args)
-  (cond
-    [(andmap numV? args)
-     (define newArgs
-       (cons (first args) (map (lambda ([arg : numV]) (numV (* -1 (numV-val arg)))) (rest args)) ) )
-     (interp-add newArgs)]
-    [else (error "Invalid operands for DXUQ -")]))
+    (cond
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for - DXUQ")]
+      [else (match (first args)
+              [(numV n) (match (second args)
+                          [(numV m) (numV (- n m))]
+                          [other (error "Invalid operands for - DXUQ")])]
+              [other (error "Invalid operands for - DXUQ")])]))
 
 
 ; interprets multiplication primitive
 (: interp-mult (-> (Listof Value) numV))
 (define (interp-mult args)
-  (cond
-    [(empty? args) (numV 1)]
-    [else (match (first args)
-            [(numV n) (numV (* n (numV-val (interp-mult (rest args)))) )]
-            [other (error "Invalid operands for DXUQ *")] )] ))
+    (cond
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for * DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV m) (numV (* n m))]
+                        [other (error "Invalid operands for * DXUQ")])]
+            [other (error "Invalid operands for * DXUQ")])]))
 
 
 ; interprets division primitive
 (: interp-div (-> (Listof Value) numV))
 (define (interp-div args)
   (cond
-    [(and (andmap numV? args) (andmap (lambda ([n : numV]) (not (eq? (numV-val n) 0))) (rest args)))
-     (define newArgs (cons (first args) (map (lambda ([arg : numV]) (numV (/ 1 (numV-val arg)))) (rest args)) ) )
-     (interp-mult newArgs)]
-    [else (error "Invalid operands for DXUQ /")]))
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for / DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV (? natural? m)) (numV (/ n m))]
+                        [other (error "Invalid operands for / DXUQ")])]
+            [other (error "Invalid operands for / DXUQ")])]))
 
 
 ; interprets <= exprC exprC to a boolean
 (: interp-leq (-> (Listof Value) boolV))
 (define (interp-leq args)
   (cond
-    [(and (numV? (first args)) (numV? (second args)))
-     (boolV (<= (numV-val (cast (first args) numV)) (numV-val (cast (second args) numV)))) ]
-    [else (error "Invalid operands for DXUQ <=")]))
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for <= DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV m) (boolV (<= n m))]
+                        [other (error "Invalid operands for <= DXUQ")])]
+            [other (error "Invalid operands for <= DXUQ")])]))
 
 
 ; looks up a symbol in an environment then returns the value associated with the symbol
@@ -218,6 +207,17 @@
   (serialize (interp (parse s) top-env)))
 
 
+(define top-env (list (Bind 'true (boolV #t))
+                      (Bind 'false (boolV #f))
+                      (Bind '+ (primV interp-add))
+                      (Bind '- (primV interp-sub))
+                      (Bind '* (primV interp-mult))
+                      (Bind '/ (primV interp-div))
+                      (Bind '<= (primV interp-leq))
+                      (Bind 'equal? (primV interp-equal))
+                      (Bind 'error (primV interp-error))))
+
+
 (check-equal? (interp-cond (boolV #t) (numV 1) (numV 2) '()) (numV 1))
 (check-equal? (interp-cond (boolV #f) (numV 1) (numV 2) '()) (numV 2))
 
@@ -243,21 +243,21 @@
            (lambda () {top-interp '{<= 1}}))
 (check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
            (lambda () {top-interp '{equal? 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
            (lambda () {top-interp '{error 1 1 2}}))
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '{+ let if}}))
 
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ +"))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
            (lambda () {top-interp '{+ true 5}}))
 
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ -"))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
            (lambda () {top-interp '{- true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ *"))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
            (lambda () {top-interp '{* true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ /"))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
            (lambda () {top-interp '{/ true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ <="))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
            (lambda () {top-interp '{<= true 5}}))
 (check-exn (regexp (regexp-quote "Invalid operands for DXUQ if"))
            (lambda () {top-interp '{if 5 true 5}}))
@@ -266,11 +266,6 @@
            (lambda () {top-interp '{{fn {a} {+ a 1}} 1 2}}))
 (check-exn (regexp (regexp-quote "Environment binding not found DXUQ"))
            (lambda () {top-interp '{{fn {a} {+ b 1}} 1}}))
-
-(check-equal? (interp-primV '+ (list (numV 2) (numV 3))) (numV 5))
-(check-equal? (interp-primV '- (list (numV 2) (numV 3))) (numV -1))
-(check-equal? (interp-primV '* (list (numV 2) (numV 3))) (numV 6))
-(check-equal? (interp-primV '/ (list (numV 8) (numV 2))) (numV 4))
 
 (check-equal? (top-interp '{equal? "hello" "hello"}) "true")
 (check-equal? (top-interp '{equal? "hello" "bye"}) "false")
@@ -294,10 +289,3 @@
            (lambda () {top-interp '(fn (3 4 5) 6)}))
 (check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
 (check-equal? (interp (parse '((fn (minus) (minus 2 1)) (fn (x y) (- x y)))) top-env) (numV 1))
-(check-equal? (interp-primV 'equal? (list (primV '+) (primV '+))) (boolV false))
-(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (cloV (numV 1) '(+) '()))) (boolV false))
-
-(check-equal? (interp-primV 'equal? (list (primV '+) (primV '+))) (boolV #f))
-(check-equal? (interp-primV 'equal? (list (primV '+) (numV '3))) (boolV #f)) 
-(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (cloV (numV 1) '(+) '()))) (boolV #f))
-(check-equal? (interp-primV 'equal? (list (cloV (numV 1) '(+) '()) (numV 1))) (boolV #f)) 
