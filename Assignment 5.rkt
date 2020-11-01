@@ -14,42 +14,20 @@
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 (struct assignC ([id : Symbol] [body : ExprC]))
 
+(define-type Store (Mutable-HashTable Integer Value))
+
 (define-type Env (Listof Bind))
 (struct Bind ([name : Symbol] [loc : Integer]) #:transparent)
 
 (define-type Value (U numV strV primV boolV cloV))
 (struct numV  ([val : Real]) #:transparent)
 (struct strV  ([val : String]) #:transparent)
-(struct primV ([op : Symbol]) #:transparent)
+(struct primV ([op : (-> (Listof Value) Value)]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
-
-(define top-env (list (Bind '+ 1)
-                      (Bind '- 2)
-                      (Bind '* 3)
-                      (Bind '/ 4)
-                      (Bind '<= 5)
-                      (Bind 'equal? 6)
-                      (Bind 'true 7)
-                      (Bind 'false 8)
-                      (Bind 'error 9)))
-
-(define-type Store (Mutable-HashTable Integer Value))
-(define top-store
-  (ann (make-hash
-        (list (cons 1 (primV '+))
-              (cons 2 (primV '-))
-              (cons 3 (primV '*))
-              (cons 4 (primV '/))
-              (cons 5 (primV '<=))
-              (cons 6 (primV 'equal?))
-              (cons 7 (boolV #t))
-              (cons 8 (boolV #f))
-              (cons 9 (primV 'error))))
-       Store))
+(struct arrayV ([first : Integer] [rest : arrayV]) #:transparent)
 
 (define reserved '(fn let if =))
-
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
@@ -57,14 +35,14 @@
   (match exp
     [(idC sym) (lookup-env sym env sto)]
     [(condC if then else) (interp-cond if then else env sto)]
-    [(appC body params)
+    [(appC body args)
      (define interpretedBody (interp body env sto))
      (match interpretedBody
        [(cloV clo-body ids clo-env)
-        (define interpretedParams (map (lambda ([param : ExprC]) (interp param env sto)) params))
-        (define new-env (extend-env ids interpretedParams clo-env sto))
+        (define interpretedArgs (map (lambda ([arg : ExprC]) (interp arg env sto)) args))
+        (define new-env (extend-env ids interpretedArgs clo-env sto))
         (interp clo-body new-env sto)]
-       [(primV symbol) (interp-primV symbol (map (lambda ([param : ExprC]) (interp param env sto)) params))]
+       [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args))]
        [other (error "Applied arguments to non-function DXUQ")])]
     [(lamC ids body) (cloV body ids env)]
     [(assignC id body) (interp-assignC exp env sto)]
@@ -80,20 +58,24 @@
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else (define nextIndex (get-next-index sto))
-          (hash-set sto nextIndex (first args))
+          (hash-set! sto nextIndex (first args))
           (cons (Bind (first symbols) nextIndex) (extend-env (rest symbols) (rest args) env sto))]))
+
+
+; looks up a symbol in an environment then returns the value associated with the symbol
+(: lookup-env (-> Symbol Env Store Value))
+(define (lookup-env sym env sto)
+  (define loc (lookup sym env))
+  (hash-ref sto loc))
 
 
 ; interprets a assignC into a value
 (: interp-assignC (-> assignC Env Store Value))
 (define (interp-assignC expr env sto)
-  ; get next store location
-  ; add id to env
-  ; set store[loc] = exp
   (define nextOpenLocation (get-next-index sto))
   (define newEnv (cons (Bind (assignC-id expr) nextOpenLocation) env))
   (define interpretedBody (interp (assignC-body expr) newEnv sto))
-  (hash-set sto nextOpenLocation interpretedBody)
+  (hash-set! sto nextOpenLocation interpretedBody)
   (cloV interpretedBody (list (assignC-id expr)) newEnv))
 
 
@@ -101,7 +83,7 @@
 (: lookup (-> Symbol Env Integer))
 (define (lookup sym env)
   (cond
-    [(empty? env) (error "Symbol not found in Environment")]
+    [(empty? env) (error "Symbol not found in Environment DXUQ")]
     [(equal? (Bind-name (first env)) sym) (Bind-loc (first env))]
     [else (lookup sym (rest env))]))
     
@@ -125,105 +107,219 @@
     [other (error "Invalid operands for DXUQ if")]))
 
 
-; interprets a primV into a value
-(: interp-primV (-> Symbol (Listof Value) Value))
-(define (interp-primV primSymbol params)
-  (match primSymbol
-    ['+ (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for + DXUQ")]
-          [else (interp-add params)])]
-    ['- (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for - DXUQ")]
-          [else (interp-sub params)])]
-    ['* (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for * DXUQ")]
-          [else (interp-mult params)])]
-    ['/ (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for / DXUQ")]
-          [else (interp-div params)])]
-    ['<= (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for <= DXUQ")]
-          [else (interp-leq params)])]
-    ['equal? (cond
-          [(not (equal? (length params) 2)) (error "Invalid number of arguments for equal? DXUQ")]
-          [(or (cloV? (first params)) (cloV? (second params))
-               (primV? (first params)) (primV? (second params))) (boolV #f)]
-          [else (boolV (equal? (first params) (second params)))])] ))
-    ;['error (cond
-    ;      [(not (equal? (length params) 1)) (error "Invalid number of arguments for equal? DXUQ")]
-    ;      [else (error (string-append "User Error DXUQ: " (serialize (first params))))])]))
+; interprets user-defined error
+(: interp-error (-> (Listof Value) numV))
+(define (interp-error args)
+  (cond
+    [(not (equal? (length args) 1)) (error "Invalid number of arguments for error DXUQ")]
+    [else (error (string-append "User Error DXUQ: " (serialize (first args))))]))
+
+
+; interprets equal?
+(: interp-equal (-> (Listof Value) boolV))
+(define (interp-equal args)
+  (cond
+    [(not (equal? (length args) 2)) (error "Invalid number of arguments for equal? DXUQ")]
+    [(or (cloV? (first args)) (cloV? (second args))
+         (primV? (first args)) (primV? (second args))) (boolV #f)]
+    [else (boolV (equal? (first args) (second args)))]))
 
 
 ; interprets addition primitive
 (: interp-add (-> (Listof Value) numV))
 (define (interp-add args)
   (cond
-    [(empty? args) (numV 0)]
+    [(not (equal? (length args) 2)) (error "Invalid number of arguments for + DXUQ")]
     [else (match (first args)
-            [(numV n) (numV (+ n (numV-val (interp-add (rest args)))) )]
-            [other (error "Invalid operands for DXUQ +")] )] ))
+            [(numV n) (match (second args)
+                        [(numV m) (numV (+ n m))]
+                        [other (error "Invalid operands for + DXUQ")])]
+            [other (error "Invalid operands for + DXUQ")])]))
 
 
 ; interprets subtraction primitive
 (: interp-sub (-> (Listof Value) numV))
 (define (interp-sub args)
-  (cond
-    [(andmap numV? args)
-     (define newArgs
-       (cons (first args) (map (lambda ([arg : numV]) (numV (* -1 (numV-val arg)))) (rest args)) ) )
-     (interp-add newArgs)]
-    [else (error "Invalid operands for DXUQ -")]))
+    (cond
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for - DXUQ")]
+      [else (match (first args)
+              [(numV n) (match (second args)
+                          [(numV m) (numV (- n m))]
+                          [other (error "Invalid operands for - DXUQ")])]
+              [other (error "Invalid operands for - DXUQ")])]))
 
 
 ; interprets multiplication primitive
 (: interp-mult (-> (Listof Value) numV))
 (define (interp-mult args)
-  (cond
-    [(empty? args) (numV 1)]
-    [else (match (first args)
-            [(numV n) (numV (* n (numV-val (interp-mult (rest args)))) )]
-            [other (error "Invalid operands for DXUQ *")] )] ))
+    (cond
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for * DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV m) (numV (* n m))]
+                        [other (error "Invalid operands for * DXUQ")])]
+            [other (error "Invalid operands for * DXUQ")])]))
 
 
 ; interprets division primitive
 (: interp-div (-> (Listof Value) numV))
 (define (interp-div args)
   (cond
-    [(and (andmap numV? args) (andmap (lambda ([n : numV]) (not (eq? (numV-val n) 0))) (rest args)))
-     (define newArgs (cons (first args) (map (lambda ([arg : numV]) (numV (/ 1 (numV-val arg)))) (rest args)) ) )
-     (interp-mult newArgs)]
-    [else (error "Invalid operands for DXUQ /")]))
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for / DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV (? natural? m)) #:when (> m 0) (numV (/ n m))]
+                        [other (error "Invalid operands for / DXUQ")])]
+            [other (error "Invalid operands for / DXUQ")])]))
 
 
 ; interprets <= exprC exprC to a boolean
 (: interp-leq (-> (Listof Value) boolV))
 (define (interp-leq args)
   (cond
-    [(and (numV? (first args)) (numV? (second args)))
-     (boolV (<= (numV-val (cast (first args) numV)) (numV-val (cast (second args) numV)))) ]
-    [else (error "Invalid operands for DXUQ <=")]))
+      [(not (equal? (length args) 2)) (error "Invalid number of arguments for <= DXUQ")]
+      [else (match (first args)
+            [(numV n) (match (second args)
+                        [(numV m) (boolV (<= n m))]
+                        [other (error "Invalid operands for <= DXUQ")])]
+            [other (error "Invalid operands for <= DXUQ")])]))
 
 
-; looks up a symbol in an environment then returns the value associated with the symbol
-(: lookup-env (-> Symbol Env Store Value))
-(define (lookup-env sym env sto)
+; serializes a value into a string
+(: serialize (-> Value String))
+(define (serialize val)
+  (match val
+    [(numV val) (~v val)]
+    [(strV val) val]
+    [(boolV val) (cond
+                   [val "true"]
+                   [else "false"])]
+    [(primV sym) "#<primop>"]
+    [(cloV body ids env) "#<procedure>"]
+    [(arrayV first rest) "#<array>"]))
+
+
+; takes in s-expr and parses to create ExprC
+(: parse (-> Sexp ExprC))
+(define (parse s)
+  (match s
+    [(? real? n) (numV n)]
+    [(? string? s) (strV s)]
+    [(? symbol? s) #:when (validID? s) (idC s)]
+    [(list 'fn (list ids ...) expr) #:when
+                                    (and (equal? (remove-duplicates ids) ids) (andmap (lambda (a) (symbol? a)) ids))
+                                    (lamC (cast ids (Listof Symbol)) (parse expr))]
+    [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
+    [(list 'let mappings ... 'in body) (parse-let mappings body)]
+    [(list 'when cond sec) (condC (parse cond) (strV "null") (parse sec))]
+    [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
+    [other (error "Invalid format DXUQ")]))
+
+
+; checks to see if an ID is not a reserved DXUQ4 keyword
+(: validID? (-> Symbol Boolean))
+(define (validID? sym)
   (cond
-    [(empty? env) (error "Environment binding not found DXUQ")]
-    [(equal? (Bind-name (first env)) sym) (hash-ref sto (Bind-loc (first env)))]
-    [else (lookup-env sym (rest env) sto)]))
+    [(member sym reserved) #f]
+    [else #t]))
+
+
+; desugars a let statement into a function application (appC)
+(: parse-let (-> (Listof Any) Sexp ExprC))
+(define (parse-let mappings body)
+  (define ids (map (lambda (mapping) (match mapping
+                                       [(list (? symbol? s) '= expr) s]
+                                       [other (error "Invalid formatting for let statement DXUQ")])) mappings))
+  (define args (map (lambda (mapping) (match mapping
+                                        [(list (? symbol? s) '= expr) expr])) mappings))
+  (parse (cast (cons (list 'fn ids body) args) Sexp)))
 
 
 ; returns the next available index in the given store
 (: get-next-index (-> Store Integer))
 (define (get-next-index sto)
-  (length (hash-keys sto)))
+  (hash-count sto))
 
 
-(check-equal? (interp-primV '+ (list (numV 2) (numV 3))) (numV 5))
-(check-equal? (interp-primV '- (list (numV 2) (numV 3))) (numV -1))
-(check-equal? (interp-primV '* (list (numV 2) (numV 3))) (numV 6))
-(check-equal? (interp-primV '/ (list (numV 8) (numV 2))) (numV 4))
+(define top-env (list (Bind '+ 1)
+                      (Bind '- 2)
+                      (Bind '* 3)
+                      (Bind '/ 4)
+                      (Bind '<= 5)
+                      (Bind 'equal? 6)
+                      (Bind 'true 7)
+                      (Bind 'false 8)
+                      (Bind 'error 9)))
+(define top-store
+  (ann (make-hash
+        (list (cons 1 (primV interp-add))
+              (cons 2 (primV interp-sub))
+              (cons 3 (primV interp-mult))
+              (cons 4 (primV interp-div))
+              (cons 5 (primV interp-leq))
+              (cons 6 (primV interp-equal))
+              (cons 7 (boolV #t))
+              (cons 8 (boolV #f))
+              (cons 9 (primV interp-error))))
+       Store))
+
+; tests for +
 (check-equal? (interp (appC (idC '+) (list (numV 1) (numV 2))) top-env top-store) (numV 3))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for -
+(check-equal? (interp (appC (idC '-) (list (numV 1) (numV 2))) top-env top-store) (numV -1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for *
+(check-equal? (interp (appC (idC '*) (list (numV 1) (numV 2))) top-env top-store) (numV 2))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for /
+(check-equal? (interp (appC (idC '/) (list (numV 2) (numV 2))) top-env top-store) (numV 1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (boolV #t))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (numV 0))) top-env top-store}))
+
+; tests for <=
+(check-equal? (interp (appC (idC '<=) (list (numV 1) (numV 2))) top-env top-store) (boolV #t))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for equal?
+(check-equal? (interp (appC (idC 'equal?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
+           (lambda () {interp (appC (idC 'equal?) (list (numV 1))) top-env top-store}))
+
+; tests for error
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi"))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi") (strV "bye"))) top-env top-store}))
 
 ; '{begin {c := 5} {c := {+ c 5}}}
 
