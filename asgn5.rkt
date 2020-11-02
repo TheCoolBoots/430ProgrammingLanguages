@@ -258,7 +258,7 @@
   (match args
     [(list (strV str) (numV (? natural? n1)) (numV (? natural? n2)))
      (cond
-       [(and (< n1 n2) (>= n1 0) (< n2 (string-length str))) (strV (substring str n1 n2))]
+       [(and (< n1 n2) (>= n1 0) (<= n2 (string-length str))) (strV (substring str n1 n2))]
        [else (error "Invalid substring operation DXUQ")])]
     [other (error "Invalid substring operation DXUQ")]))
 
@@ -316,7 +316,7 @@
     [(primV sym) "#<primop>"]
     [(cloV body ids env) "#<procedure>"]
     [(arrayV first rest) "#<array>"]
-    [(nullV) ""]))
+    [(nullV) "null"]))
 
 
 ; interprets a DXUQ program into a string
@@ -480,7 +480,7 @@
            (lambda () {top-interp '(fn (3 4 5) 6)}))
 (check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
 
-(check-equal? (top-interp '{a := 2}) "")
+(check-equal? (top-interp '{a := 2}) "null")
 
 (check-equal? (top-interp '{let
                               {p = {new-array 10 2}}
