@@ -2,8 +2,7 @@
 
 (require typed/rackunit)
 
-
-; not finished
+; need to finish mutation test cases
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC asgnC Value))
@@ -47,7 +46,7 @@
     [(numV val) exp]
     [(strV val) exp]
     [(boolV val) exp]
-    [other (error "unimplemented")]))
+    ))
 
 ; returns extended environment including given symbols/ExprC's
 (: extend-env (-> (Listof Symbol) (Listof Value) Env Store Env))
@@ -63,10 +62,8 @@
 ; gets the next index in the hash table
 (: allocate (-> Store (Listof Value) Integer))
 (define (allocate sto args)
-  (cond
-    [(empty? args) (get-next-index sto)]
-    [else (hash-set! sto (get-next-index sto) (first args))
-          (get-next-index sto)]))
+  (hash-set! sto (get-next-index sto) (first args))
+  (get-next-index sto))
 
 ; returns the next available index in the given store
 (: get-next-index (-> Store Integer))
@@ -99,7 +96,6 @@
     [(empty? env) (error "Symbol not in Env DXUQ")]
     [(equal? sym (Bind-name (first env))) (Bind-loc (first env))]
     [else (lookup sym (rest env))]))
-
 
 ; interprets addition primitive
 (: interp-add (-> (Listof Value) Value))
@@ -203,7 +199,7 @@
                                                            (arrayV index n)]
                            [other (error "Invalid operands new-array DXUQ")])]
     [else (error "Invalid new-array DXUQ")]))
-          
+
 ; returns the first location of an array in memory
 (: make-new-array (-> Integer Value Integer))
 (define (make-new-array length val)
@@ -224,9 +220,10 @@
 (define (interp-aref args)
   (cond
     [(equal? (length args) 2) (match args
-                                  [(list (arrayV loc len) (numV (? natural? n))) (cond
-                                                                                   [(< n len) (hash-ref top-store (+ n loc))]
-                                                                                   [else (error "Index out of bounds DXUQ")])]
+                                  [(list (arrayV loc len) (numV (? natural? n)))
+                                   (cond
+                                     [(< n len) (hash-ref top-store (+ n loc))]
+                                     [else (error "Index out of bounds DXUQ")])]
                                   [other (error "Invalid operands for aref DXUQ")])]
     [else (error "Invalid number of operands for aref DXUQ")]))
 
@@ -235,10 +232,10 @@
 (define (interp-aset! args)
   (cond
     [(equal? (length args) 3) (match args
-                                [(list (arrayV loc len) (numV (? natural? n)) new) (cond
-                                                                                     [(< n len) (hash-set! top-store (+ n loc) new)
-                                                                                      (nullV)]
-                                                                                     [else (error "Index out of bounds DXUQ")])]
+                                [(list (arrayV loc len) (numV (? natural? n)) new)
+                                 (cond
+                                  [(< n len) (hash-set! top-store (+ n loc) new) (nullV)]
+                                  [else (error "Index out of bounds DXUQ")])]
                                 [other (error "Invalid operands for aset! DXUQ")])]
     [else (error "Invalid number of operands for aset! DXUQ")]))
                                                                                    
@@ -258,7 +255,13 @@
        [(and (< n1 n2) (>= n1 0) (< n2 (string-length str))) (strV (substring str n1 n2))]
        [else (error "Invalid substring operation DXUQ")])]
     [other (error "Invalid substring operation DXUQ")]))
-                                                                      
+
+
+(check-equal? (interp-substring (list (strV "david") (numV 1) (numV 3))) (strV "av"))
+(check-exn (regexp (regexp-quote "Invalid substring operation DXUQ"))
+           (lambda () {interp-substring (list (strV "d") (strV "d"))}))
+(check-exn (regexp (regexp-quote "Invalid substring operation DXUQ"))
+           (lambda () {interp-substring (list (strV "d") (numV 4) (numV 3))}))
 
 ; takes in s-expr and parses to create ExprC
 (: parse (-> Sexp ExprC))
@@ -273,7 +276,6 @@
                                     (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
-    [(list 'when cond sec) (condC (parse cond) (strV "null") (parse sec))]
     [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
     [other (error "Invalid format DXUQ")]))
 
@@ -307,7 +309,8 @@
                    [else "false"])]
     [(primV sym) "#<primop>"]
     [(cloV body ids env) "#<procedure>"]
-    [(arrayV first rest) "#<array>"]))
+    [(arrayV first rest) "#<array>"]
+    [(nullV) ""]))
 
 
 ; interprets a DXUQ program into a string
@@ -351,3 +354,170 @@
               (cons 14 (primV interp-begin))
               (cons 15 (primV interp-substring))))
        Store))
+
+; tests for +
+(check-equal? (interp (appC (idC '+) (list (numV 1) (numV 2))) top-env top-store) (numV 3))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for -
+(check-equal? (interp (appC (idC '-) (list (numV 1) (numV 2))) top-env top-store) (numV -1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for *
+(check-equal? (interp (appC (idC '*) (list (numV 1) (numV 2))) top-env top-store) (numV 2))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for /
+(check-equal? (interp (appC (idC '/) (list (numV 2) (numV 2))) top-env top-store) (numV 1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (boolV #t))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (numV 0))) top-env top-store}))
+
+; tests for <=
+(check-equal? (interp (appC (idC '<=) (list (numV 1) (numV 2))) top-env top-store) (boolV #t))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for equal?
+(check-equal? (interp (appC (idC 'equal?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
+           (lambda () {interp (appC (idC 'equal?) (list (numV 1))) top-env top-store}))
+
+; tests for error
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi"))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi") (strV "bye"))) top-env top-store}))
+
+(check-equal? (top-interp '{if {<= 3 5} 3 5}) "3")
+(check-equal? (top-interp '{if true 3 5}) "3")
+(check-equal? (top-interp '{if false "hi" "bye"}) "bye")
+(check-exn (regexp (regexp-quote "Invalid number of arguments for + DXUQ"))
+           (lambda () {top-interp '{+ 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for - DXUQ"))
+           (lambda () {top-interp '{- 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for * DXUQ"))
+           (lambda () {top-interp '{* 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for / DXUQ"))
+           (lambda () {top-interp '{/ 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for <= DXUQ"))
+           (lambda () {top-interp '{<= 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
+           (lambda () {top-interp '{equal? 1}}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
+           (lambda () {top-interp '{error 1 1 2}}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '{+ let if}}))
+
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {top-interp '{+ true 5}}))
+
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {top-interp '{- true 5}}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {top-interp '{* true 5}}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {top-interp '{/ true 5}}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {top-interp '{<= true 5}}))
+(check-exn (regexp (regexp-quote "Invalid operands for DXUQ if"))
+           (lambda () {top-interp '{if 5 true 5}}))
+
+(check-exn (regexp (regexp-quote "Different numbers of ids and args DXUQ"))
+           (lambda () {top-interp '{{fn {a} {+ a 1}} 1 2}}))
+(check-exn (regexp (regexp-quote "Environment binding not found DXUQ"))
+           (lambda () {top-interp '{{fn {a} {+ b 1}} 1}}))
+
+(check-equal? (top-interp '{equal? "hello" "hello"}) "true")
+(check-equal? (top-interp '{equal? "hello" "bye"}) "false")
+{check-equal? (top-interp '{let {b = 5} {a = 5} in {+ a b}}) "10"}
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a = 12 1} in {+ a 2}}}))
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a =} in {+ a 2}}}))
+
+(check-exn (regexp (regexp-quote "Applied arguments to non-function DXUQ"))
+           (lambda () {top-interp '{5 4 3}}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '{}}))
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {top-interp '{error "hi"}}))
+(check-equal? (top-interp '(fn () 9)) "#<procedure>")
+(check-equal? (top-interp '+) "#<primop>")
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (x x) 3)}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (3 4 5) 6)}))
+(check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
+
+(check-equal? (top-interp '{a := 2}) "")
+
+(check-equal? (top-interp '{let
+                              {p = {new-array 10 2}}
+                            in
+                            {aref p 3}}) "2")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             p}) "#<array>")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             {begin
+                               {aset! p 1 2}
+                               {aref p 1}}}) "2")
+
+(check-equal? (top-interp '{let {fact = "bogus"}
+  in
+ {begin {fact := {fn {n} {if {<= n 0} 1 {* n {fact {- n 1}}}}}}
+   {fact 12}}}) "479001600")
+
+(check-equal? (lookup 's (list (Bind 'a 1) (Bind 'b 2) (Bind 's 3))) 3)
+(check-exn (regexp (regexp-quote "Symbol not in Env DXUQ"))
+           (lambda () {lookup 's (list)}))
+(check-equal? (interp-equal (list (cloV (idC 's) '() '()) (cloV (idC 'a) '() '()))) (boolV #f))
+(check-exn (regexp (regexp-quote "Invalid operands new-array DXUQ"))
+           (lambda () {interp-new-array (list (strV "d") (strV "d"))}))
+(check-exn (regexp (regexp-quote "Invalid new-array DXUQ"))
+           (lambda () {interp-new-array (list (strV "d") (strV "d") (numV 3))}))
+(check-exn (regexp (regexp-quote "Invalid operands for aref DXUQ"))
+           (lambda () {interp-aref (list (strV "d") (strV "d"))}))
+(check-exn (regexp (regexp-quote "Invalid number of operands for aref DXUQ"))
+           (lambda () {interp-aref (list (strV "d") (strV "d") (numV 3))}))
+(check-exn (regexp (regexp-quote "Invalid operands for aset! DXUQ"))
+           (lambda () {interp-aset! (list (strV "d") (strV "d") (strV "david"))}))
+(check-exn (regexp (regexp-quote "Invalid number of operands for aset! DXUQ"))
+           (lambda () {interp-aset! (list (strV "d") (numV 3))}))
+(check-equal? (interp-substring (list (strV "david") (numV 1) (numV 3))) (strV "av"))
+(check-exn (regexp (regexp-quote "Invalid substring operation DXUQ"))
+           (lambda () {interp-substring (list (strV "d") (strV "d"))}))
+(check-exn (regexp (regexp-quote "Invalid substring operation DXUQ"))
+           (lambda () {interp-substring (list (strV "d") (numV 4) (numV 3))}))
+(check-exn (regexp (regexp-quote "Index out of bounds DXUQ"))
+           (lambda () {interp-aref (list (arrayV 2 3) (numV 100))}))
+(check-exn (regexp (regexp-quote "Index out of bounds DXUQ"))
+           (lambda () {interp-aset! (list (arrayV 2 3) (numV 100) (strV "david"))}))
