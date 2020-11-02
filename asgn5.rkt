@@ -27,24 +27,28 @@
 (define reserved '(:= if let = in fn))
 
 ; while
-(define while '{let
-                   {while = "null"}
+(define while '{let {while = "bogus"}
                  in
-                 {begin
-                   {while := {fn {guard body}
-                                 {if {guard}
-                                     {body}
-                                     {}}}}}})
-
+                 {begin {while := {fn {guard}
+                                      {fn {body}
+                                          {if {guard}
+                                              {begin
+                                                {body}
+                                                {while guard body}}
+                                              false}}}}}})
+                                   
 ; in-order
 (define in-order '{let
                       {in-order = "null"}
                     in
-                    {in-order := {fn {arr len}
-                                     {begin
-                                       {n = 0}
-                                     {in-order := {while {< n len} {if {< {aref arr n} {aref arr {+ n 1}}} {+ n 1} #f}}}
-                                     #t}}}})
+                    {in-order := {fn {arr}
+                                   {fn {len}
+                                     {fn {n}
+                                       {fn {body}
+                                         {while {< n {- len 1}} {if
+                                                           {< {aref arr n} {aref arr {+ n 1}}}
+                                                           {+ n 1}
+                                                           false}}}}}}}})
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
