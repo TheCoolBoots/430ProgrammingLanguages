@@ -19,15 +19,16 @@
 (define-type Env (Listof Bind))
 (struct Bind ([name : Symbol] [loc : Integer]) #:transparent)
 
-(define-type Value (U numV strV primV boolV cloV))
+(define-type Value (U numV strV primV boolV cloV arrayV nullV))
 (struct numV  ([val : Real]) #:transparent)
 (struct strV  ([val : String]) #:transparent)
-(struct primV ([op : (-> (Listof Value) Value)]) #:transparent)
+(struct primV ([op : (-> (Listof Value) Store Value)]) #:transparent)
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
-(struct arrayV ([first : Integer] [rest : arrayV]) #:transparent)
+(struct arrayV ([startIndex : Integer] [length : Integer]) #:transparent)
+(struct nullV ([val : Integer]))
 
-(define reserved '(fn let if =))
+(define reserved '(:= if let = in fn))
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
@@ -42,7 +43,7 @@
         (define interpretedArgs (map (lambda ([arg : ExprC]) (interp arg env sto)) args))
         (define new-env (extend-env ids interpretedArgs clo-env sto))
         (interp clo-body new-env sto)]
-       [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args))]
+       [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args) sto)]
        [other (error "Applied arguments to non-function DXUQ")])]
     [(lamC ids body) (cloV body ids env)]
     [(assignC id body) (interp-assignC exp env sto)]
@@ -58,7 +59,7 @@
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else (define nextIndex (get-next-index sto))
-          (hash-set! sto nextIndex (first args))
+          (hash-set sto nextIndex (first args))
           (cons (Bind (first symbols) nextIndex) (extend-env (rest symbols) (rest args) env sto))]))
 
 
@@ -72,11 +73,13 @@
 ; interprets a assignC into a value
 (: interp-assignC (-> assignC Env Store Value))
 (define (interp-assignC expr env sto)
-  (define nextOpenLocation (get-next-index sto))
+  (define nextOpenLocation (cond
+                              [(in-env? (assignC-id expr) env) (lookup (assignC-id expr) env)]
+                              [else (get-next-index sto)]))
   (define newEnv (cons (Bind (assignC-id expr) nextOpenLocation) env))
   (define interpretedBody (interp (assignC-body expr) newEnv sto))
-  (hash-set! sto nextOpenLocation interpretedBody)
-  (cloV interpretedBody (list (assignC-id expr)) newEnv))
+  (hash-set sto nextOpenLocation interpretedBody)
+  (nullV 0))
 
 
 ; gets the location associated with given id in Env
@@ -108,16 +111,16 @@
 
 
 ; interprets user-defined error
-(: interp-error (-> (Listof Value) numV))
-(define (interp-error args)
+(: interp-error (-> (Listof Value) Store numV))
+(define (interp-error args sto)
   (cond
     [(not (equal? (length args) 1)) (error "Invalid number of arguments for error DXUQ")]
     [else (error (string-append "User Error DXUQ: " (serialize (first args))))]))
 
 
 ; interprets equal?
-(: interp-equal (-> (Listof Value) boolV))
-(define (interp-equal args)
+(: interp-equal (-> (Listof Value) Store boolV))
+(define (interp-equal args sto)
   (cond
     [(not (equal? (length args) 2)) (error "Invalid number of arguments for equal? DXUQ")]
     [(or (cloV? (first args)) (cloV? (second args))
@@ -126,8 +129,8 @@
 
 
 ; interprets addition primitive
-(: interp-add (-> (Listof Value) numV))
-(define (interp-add args)
+(: interp-add (-> (Listof Value) Store numV))
+(define (interp-add args sto)
   (cond
     [(not (equal? (length args) 2)) (error "Invalid number of arguments for + DXUQ")]
     [else (match (first args)
@@ -138,8 +141,8 @@
 
 
 ; interprets subtraction primitive
-(: interp-sub (-> (Listof Value) numV))
-(define (interp-sub args)
+(: interp-sub (-> (Listof Value) Store numV))
+(define (interp-sub args sto)
     (cond
       [(not (equal? (length args) 2)) (error "Invalid number of arguments for - DXUQ")]
       [else (match (first args)
@@ -150,8 +153,8 @@
 
 
 ; interprets multiplication primitive
-(: interp-mult (-> (Listof Value) numV))
-(define (interp-mult args)
+(: interp-mult (-> (Listof Value) Store numV))
+(define (interp-mult args sto)
     (cond
       [(not (equal? (length args) 2)) (error "Invalid number of arguments for * DXUQ")]
       [else (match (first args)
@@ -162,8 +165,8 @@
 
 
 ; interprets division primitive
-(: interp-div (-> (Listof Value) numV))
-(define (interp-div args)
+(: interp-div (-> (Listof Value) Store numV))
+(define (interp-div args sto)
   (cond
       [(not (equal? (length args) 2)) (error "Invalid number of arguments for / DXUQ")]
       [else (match (first args)
@@ -174,8 +177,8 @@
 
 
 ; interprets <= exprC exprC to a boolean
-(: interp-leq (-> (Listof Value) boolV))
-(define (interp-leq args)
+(: interp-leq (-> (Listof Value) Store boolV))
+(define (interp-leq args sto)
   (cond
       [(not (equal? (length args) 2)) (error "Invalid number of arguments for <= DXUQ")]
       [else (match (first args)
@@ -183,6 +186,72 @@
                         [(numV m) (boolV (<= n m))]
                         [other (error "Invalid operands for <= DXUQ")])]
             [other (error "Invalid operands for <= DXUQ")])]))
+
+
+; interprets an array into a Value
+(: interp-array (-> (Listof Value) Store arrayV))
+(define (interp-array values sto)
+  (begin
+    (define arrayStartIndex (get-next-index sto))
+    (map (lambda ([v : Value]) (hash-set! sto (get-next-index sto) v)) values)
+    (arrayV arrayStartIndex (length values))))
+
+
+; creates and returns a new array with given parameters
+(: interp-new-array (-> (Listof Value) Store arrayV))
+(define (interp-new-array args sto)
+  (cond
+    [(equal? (length args) 2) (match args
+                                [(list (numV (? natural? n)) val) (begin (define arrayStartIndex (get-next-index sto))
+                                                                         (init-array n val sto)
+                                                                         (arrayV arrayStartIndex n))]
+                                [other (error "Invalid operands for new-array DXUQ")])]
+    [else (error "Invalid number of arguments for new-array DXUQ")]))
+
+
+; allocates given number of store locations and assigns given value to them
+(: init-array (-> Natural Value Store 1))
+(define (init-array num val sto)
+  (cond
+    [(equal? num 0) 1]
+    [else (hash-set! sto (get-next-index sto) val) (init-array (- num 1) val sto)]))
+
+
+; returns the value of the given array at index i
+(: interp-aref (-> (Listof Value) Store Value))
+(define (interp-aref args sto)
+  (cond
+    [(equal? (length args) 2) (error "Invalid number of arguments for aref DXUQ4")]
+    [else (match args
+            [(list (arrayV loc length) (numV (? natural? n))) #:when (< n length) (hash-ref sto (+ loc n))]
+            [other (error "Invalid operands for aref DXUQ")])]))
+
+
+; returns the value of the given array at index i
+(: interp-aset! (-> (Listof Value) Store Value))
+(define (interp-aset! args sto)
+  (cond
+    [(equal? (length args) 3) (error "Invalid number of arguments for aref DXUQ4")]
+    [else (match args
+            [(list (arrayV loc length) (numV (? natural? n))) #:when (< n length)
+                                                          (hash-set! sto (+ loc n) (third args))
+                                                          (nullV 0)]
+            [other (error "Invalid operands for aref DXUQ")])]))
+
+
+; returns the value of the last interpreted argument
+(: interp-begin (-> (Listof Value) Store Value))
+(define (interp-begin args sto)
+  (first (reverse args)))
+
+
+; returns str[begin:end] excluding char @ index end
+(: interp-substring (-> (Listof Value) Store Value))
+(define (interp-substring args sto)
+  (match args
+    [(list (strV str) (numV (? natural? n)) (numV (? natural? m)))
+           #:when (and (>= n 0) (< n m) (< m (string-length str))) (strV (substring str n m))]
+    [other (error "Invalid operands for aref DXUQ")]))
 
 
 ; serializes a value into a string
@@ -241,26 +310,38 @@
   (hash-count sto))
 
 
-(define top-env (list (Bind '+ 1)
-                      (Bind '- 2)
-                      (Bind '* 3)
-                      (Bind '/ 4)
-                      (Bind '<= 5)
-                      (Bind 'equal? 6)
-                      (Bind 'true 7)
-                      (Bind 'false 8)
-                      (Bind 'error 9)))
+(define top-env (list (Bind '+ 0)
+                      (Bind '- 1)
+                      (Bind '* 2)
+                      (Bind '/ 3)
+                      (Bind '<= 4)
+                      (Bind 'equal? 5)
+                      (Bind 'true 6)
+                      (Bind 'false 7)
+                      (Bind 'error 8)
+                      (Bind 'array 9)
+                      (Bind 'new-array 10)
+                      (Bind 'aref 11)
+                      (Bind 'aset! 12)
+                      (Bind 'begin 13)
+                      (Bind 'substring 14)))
 (define top-store
   (ann (make-hash
-        (list (cons 1 (primV interp-add))
-              (cons 2 (primV interp-sub))
-              (cons 3 (primV interp-mult))
-              (cons 4 (primV interp-div))
-              (cons 5 (primV interp-leq))
-              (cons 6 (primV interp-equal))
-              (cons 7 (boolV #t))
-              (cons 8 (boolV #f))
-              (cons 9 (primV interp-error))))
+        (list (cons 0 (primV interp-add))
+              (cons 1 (primV interp-sub))
+              (cons 2 (primV interp-mult))
+              (cons 3 (primV interp-div))
+              (cons 4 (primV interp-leq))
+              (cons 5 (primV interp-equal))
+              (cons 6 (boolV #t))
+              (cons 7 (boolV #f))
+              (cons 8 (primV interp-error))
+              (cons 9 (primV interp-array))
+              (cons 10 (primV interp-new-array))
+              (cons 11 (primV interp-aref))
+              (cons 12 (primV interp-aset!))
+              (cons 13 (primV interp-begin))
+              (cons 14 (primV interp-substring))))
        Store))
 
 ; tests for +
