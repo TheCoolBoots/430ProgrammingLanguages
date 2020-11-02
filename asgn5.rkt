@@ -2,7 +2,7 @@
 
 (require typed/rackunit)
 
-; need to finish mutation test cases
+; need to do while and in-order
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC asgnC Value))
@@ -25,6 +25,12 @@
 (struct nullV ())
 
 (define reserved '(:= if let = in fn))
+
+; while
+(define while '())
+
+; in-order
+(define in-order '())
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
