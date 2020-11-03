@@ -12,7 +12,7 @@
 (struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
 (struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
-(struct assignC ([id : Symbol] [body : ExprC]))
+(struct assignC ([id : Symbol] [body : ExprC]) #:transparent)
 
 (define-type Store (Mutable-HashTable Integer Value))
 
@@ -26,7 +26,7 @@
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
 (struct arrayV ([startIndex : Integer] [length : Integer]) #:transparent)
-(struct nullV ([val : Integer]))
+(struct nullV ([val : Integer]) #:transparent)
 
 (define reserved '(:= if let = in fn))
 
@@ -49,7 +49,9 @@
     [(assignC id body) (interp-assignC exp env sto)]
     [(numV val) exp]
     [(strV val) exp]
-    [(boolV val) exp]))
+    [(boolV val) exp]
+    [(nullV val) exp]
+    [(arrayV start len) exp]))
 
 
 ; returns extended environment including given symbols/ExprC's
@@ -59,7 +61,7 @@
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else (define nextIndex (get-next-index sto))
-          (hash-set sto nextIndex (first args))
+          (hash-set! sto nextIndex (first args))
           (cons (Bind (first symbols) nextIndex) (extend-env (rest symbols) (rest args) env sto))]))
 
 
@@ -78,17 +80,17 @@
                               [else (get-next-index sto)]))
   (define newEnv (cons (Bind (assignC-id expr) nextOpenLocation) env))
   (define interpretedBody (interp (assignC-body expr) newEnv sto))
-  (hash-set sto nextOpenLocation interpretedBody)
+  (hash-set! sto nextOpenLocation interpretedBody)
   (nullV 0))
 
 
 ; gets the location associated with given id in Env
 (: lookup (-> Symbol Env Integer))
 (define (lookup sym env)
-  (cond
-    [(empty? env) (error "Symbol not found in Environment DXUQ")]
+ (begin (define k 5) (+ k k)(cond
+    [(empty? env) (error 'ERROR "Symbol ~e not found in Environment DXUQ" sym)]
     [(equal? (Bind-name (first env)) sym) (Bind-loc (first env))]
-    [else (lookup sym (rest env))]))
+    [else (lookup sym (rest env))])))
     
 
 ; returns #t if symbol exists in Env, #f otherwise
@@ -125,7 +127,22 @@
     [(not (equal? (length args) 2)) (error "Invalid number of arguments for equal? DXUQ")]
     [(or (cloV? (first args)) (cloV? (second args))
          (primV? (first args)) (primV? (second args))) (boolV #f)]
+    [(and (arrayV? (first args)) (arrayV? (second args)))
+     (arrayV-equal? (cast (first args) arrayV) (cast (second args) arrayV) 0 sto)]
+    [(and (nullV? (first args)) (nullV? (second args))) (boolV #t)]
     [else (boolV (equal? (first args) (second args)))]))
+
+
+; returns true if all the elements in both arrays are equal
+(: arrayV-equal? (-> arrayV arrayV Integer Store boolV))
+(define (arrayV-equal? arr1 arr2 currentIndex sto)
+  (cond
+    [(equal? currentIndex (arrayV-length arr1)) (boolV #t)]
+    [else (cond
+            [(equal? (hash-ref sto (arrayV-startIndex arr1))
+                     (hash-ref sto (arrayV-startIndex arr2)))
+             (arrayV-equal? arr1 arr2 (+ currentIndex 1) sto)]
+            [else (boolV #f)])]))
 
 
 ; interprets addition primitive
@@ -191,10 +208,13 @@
 ; interprets an array into a Value
 (: interp-array (-> (Listof Value) Store arrayV))
 (define (interp-array values sto)
-  (begin
-    (define arrayStartIndex (get-next-index sto))
-    (map (lambda ([v : Value]) (hash-set! sto (get-next-index sto) v)) values)
-    (arrayV arrayStartIndex (length values))))
+    (cond
+      [(<= (length values) 0) (error "Cannot create array of length 0 DXUQ")]
+      [else
+       (begin
+       (define arrayStartIndex (get-next-index sto))
+       (map (lambda ([v : Value]) (hash-set! sto (get-next-index sto) v)) values)
+       (arrayV arrayStartIndex (length values)))]))
 
 
 ; creates and returns a new array with given parameters
@@ -202,7 +222,8 @@
 (define (interp-new-array args sto)
   (cond
     [(equal? (length args) 2) (match args
-                                [(list (numV (? natural? n)) val) (begin (define arrayStartIndex (get-next-index sto))
+                                [(list (numV (? natural? n)) val) #:when (> n 0)
+                                                                  (begin (define arrayStartIndex (get-next-index sto))
                                                                          (init-array n val sto)
                                                                          (arrayV arrayStartIndex n))]
                                 [other (error "Invalid operands for new-array DXUQ")])]
@@ -210,10 +231,10 @@
 
 
 ; allocates given number of store locations and assigns given value to them
-(: init-array (-> Natural Value Store 1))
+(: init-array (-> Natural Value Store nullV))
 (define (init-array num val sto)
   (cond
-    [(equal? num 0) 1]
+    [(equal? num 0) (nullV 0)]
     [else (hash-set! sto (get-next-index sto) val) (init-array (- num 1) val sto)]))
 
 
@@ -221,7 +242,7 @@
 (: interp-aref (-> (Listof Value) Store Value))
 (define (interp-aref args sto)
   (cond
-    [(equal? (length args) 2) (error "Invalid number of arguments for aref DXUQ4")]
+    [(not (equal? (length args) 2)) (error "Invalid number of arguments for aref DXUQ4")]
     [else (match args
             [(list (arrayV loc length) (numV (? natural? n))) #:when (< n length) (hash-ref sto (+ loc n))]
             [other (error "Invalid operands for aref DXUQ")])]))
@@ -231,18 +252,20 @@
 (: interp-aset! (-> (Listof Value) Store Value))
 (define (interp-aset! args sto)
   (cond
-    [(equal? (length args) 3) (error "Invalid number of arguments for aref DXUQ4")]
+    [(not (equal? (length args) 3)) (error "Invalid number of arguments for aset! DXUQ4")]
     [else (match args
-            [(list (arrayV loc length) (numV (? natural? n))) #:when (< n length)
-                                                          (hash-set! sto (+ loc n) (third args))
+            [(list (arrayV loc length) (numV (? natural? n)) expr) #:when (< n length)
+                                                          (hash-set! sto (+ loc n) expr)
                                                           (nullV 0)]
-            [other (error "Invalid operands for aref DXUQ")])]))
+            [other (error "Invalid operands for aset! DXUQ")])]))
 
 
 ; returns the value of the last interpreted argument
 (: interp-begin (-> (Listof Value) Store Value))
 (define (interp-begin args sto)
-  (first (reverse args)))
+  (cond
+    [(> (length args) 0) (first (reverse args))]
+    [else (error "Invalid number of arguments for begin DXUQ")]))
 
 
 ; returns str[begin:end] excluding char @ index end
@@ -250,8 +273,8 @@
 (define (interp-substring args sto)
   (match args
     [(list (strV str) (numV (? natural? n)) (numV (? natural? m)))
-           #:when (and (>= n 0) (< n m) (< m (string-length str))) (strV (substring str n m))]
-    [other (error "Invalid operands for aref DXUQ")]))
+           #:when (and (>= n 0) (< n m) (<= m (string-length str))) (strV (substring str n m))]
+    [other (error "Invalid operands for substring DXUQ")]))
 
 
 ; serializes a value into a string
@@ -265,7 +288,8 @@
                    [else "false"])]
     [(primV sym) "#<primop>"]
     [(cloV body ids env) "#<procedure>"]
-    [(arrayV first rest) "#<array>"]))
+    [(arrayV first rest) "#<array>"]
+    [(nullV n) "null"]))
 
 
 ; takes in s-expr and parses to create ExprC
@@ -280,7 +304,7 @@
                                     (lamC (cast ids (Listof Symbol)) (parse expr))]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
-    [(list 'when cond sec) (condC (parse cond) (strV "null") (parse sec))]
+    [(list (? symbol? id) ':= expr) (assignC id (parse expr))]
     [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
     [other (error "Invalid format DXUQ")]))
 
@@ -310,6 +334,12 @@
   (hash-count sto))
 
 
+; interprets a DXUQ program into a string
+(define (top-interp [s : Sexp]) : String
+  (serialize (interp (parse s) top-env top-store)))
+
+
+
 (define top-env (list (Bind '+ 0)
                       (Bind '- 1)
                       (Bind '* 2)
@@ -324,7 +354,8 @@
                       (Bind 'aref 11)
                       (Bind 'aset! 12)
                       (Bind 'begin 13)
-                      (Bind 'substring 14)))
+                      (Bind 'substring 14)
+                      (Bind 'null 15)))
 (define top-store
   (ann (make-hash
         (list (cons 0 (primV interp-add))
@@ -341,8 +372,10 @@
               (cons 11 (primV interp-aref))
               (cons 12 (primV interp-aset!))
               (cons 13 (primV interp-begin))
-              (cons 14 (primV interp-substring))))
+              (cons 14 (primV interp-substring))
+              (cons 15 (nullV 0))))
        Store))
+
 
 ; tests for +
 (check-equal? (interp (appC (idC '+) (list (numV 1) (numV 2))) top-env top-store) (numV 3))
@@ -395,6 +428,7 @@
 (check-equal? (interp (appC (idC 'equal?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
 (check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
            (lambda () {interp (appC (idC 'equal?) (list (numV 1))) top-env top-store}))
+(check-equal? (interp (appC (idC 'equal?) (list (nullV 0) (nullV 0))) top-env top-store) (boolV #t))
 
 ; tests for error
 (check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
@@ -402,5 +436,139 @@
 (check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
            (lambda () {interp (appC (idC 'error) (list (strV "hi") (strV "bye"))) top-env top-store}))
 
-; '{begin {c := 5} {c := {+ c 5}}}
+; tests for array
+(define arr1 (interp (appC (idC 'array) (list (numV 1) (numV 2) (numV 3))) top-env top-store))
+(check-equal? (hash-ref top-store 16) (numV 1))
+(check-equal? (hash-ref top-store 17) (numV 2))
+(check-equal? (hash-ref top-store 18) (numV 3))
+(check-exn (regexp (regexp-quote "Cannot create array of length 0 DXUQ"))
+           (lambda () {interp (appC (idC 'array) '()) top-env top-store}))
+
+; tests for new-array
+(define arr2 (interp (appC (idC 'new-array) (list (numV 3) (strV "hello"))) top-env top-store))
+(check-equal? (hash-ref top-store 19) (strV "hello"))
+(check-equal? (hash-ref top-store 20) (strV "hello"))
+(check-equal? (hash-ref top-store 21) (strV "hello"))
+(check-exn (regexp (regexp-quote "Invalid operands for new-array DXUQ"))
+           (lambda () {interp (appC (idC 'new-array) (list (numV 0) (strV "hi"))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for new-array DXUQ"))
+           (lambda () {interp (appC (idC 'new-array) (list (numV 0))) top-env top-store}))
+
+(check-equal? (interp (appC (idC 'equal?) (list arr1 arr2)) top-env top-store) (boolV #f))
+(check-equal? (interp (appC (idC 'equal?) (list arr1 arr1)) top-env top-store) (boolV #t))
+
+; tests for aref
+(check-equal? (interp (appC (idC 'aref) (list arr1 (numV 2))) top-env top-store) (numV 3))
+(check-equal? (interp (appC (idC 'aref) (list arr2 (numV 0))) top-env top-store) (strV "hello"))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for aref DXUQ"))
+           (lambda () {interp (appC (idC 'aref) (list (numV 0))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for aref DXUQ"))
+           (lambda () {interp (appC (idC 'aref) (list arr2 (numV 3))) top-env top-store}))
+
+; tests for aset!
+(check-equal? (interp (appC (idC 'aset!) (list arr1 (numV 2) (strV "NEWBIEE"))) top-env top-store) (nullV 0))
+(check-equal? (hash-ref top-store 18) (strV "NEWBIEE"))
+(check-exn (regexp (regexp-quote "Invalid operands for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list (numV 2) (numV 3) (numV 3))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list arr1 (numV 3) (numV 3))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list (numV 3) (numV 3))) top-env top-store}))
+
+; tests for begin
+(check-equal? (interp (appC (idC 'begin) (list (appC (idC '+) (list (numV 1) (numV 2)))
+                                               (appC (idC '+) (list (numV 1) (numV 3))))) top-env top-store) (numV 4))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for begin DXUQ"))
+           (lambda () {interp (appC (idC 'begin) '()) top-env top-store}))
+
+; tests for substring
+(check-equal? (interp (appC (idC 'substring) (list (strV "hello") (numV 0) (numV 2))) top-env top-store) (strV "he"))
+(check-exn (regexp (regexp-quote "Invalid operands for substring DXUQ"))
+           (lambda () {interp (appC (idC 'substring) (list arr1 (numV 4) (numV 3))) top-env top-store}))
+
+(check-exn (regexp (regexp-quote "Applied arguments to non-function DXUQ"))
+           (lambda () {top-interp '{5 4 3}}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '{}}))
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {top-interp '{error "hi"}}))
+(check-equal? (top-interp '(fn () 9)) "#<procedure>")
+(check-equal? (top-interp '+) "#<primop>")
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (x x) 3)}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (3 4 5) 6)}))
+(check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
+(check-equal? (top-interp '{equal? "hello" "hello"}) "true")
+(check-equal? (top-interp '{equal? "hello" "bye"}) "false")
+{check-equal? (top-interp '{let {b = 5} {a = 5} in {+ a b}}) "10"}
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a = 12 1} in {+ a 2}}}))
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a =} in {+ a 2}}}))
+
+(check-equal? (top-interp '{let
+                              {p = {new-array 10 2}}
+                            in
+                            {aref p 3}}) "2")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             p}) "#<array>")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             {begin
+                               {aset! p 1 2}
+                               {aref p 1}}}) "2")
+
+(check-equal? (top-interp '{let {fact = "bogus"}
+  in
+ {begin {fact := {fn {n} {if {<= n 0} 1 {* n {fact {- n 1}}}}}}
+   {fact 12}}}) "479001600")
+(check-exn (regexp (regexp-quote "Symbol 'a not found in Environment DXUQ"))
+           (lambda () {top-interp '{+ a 2}}))
+(check-exn (regexp (regexp-quote "Invalid operands for DXUQ if"))
+           (lambda () {top-interp '{if 7 2 3}}))
+(check-equal? (in-env? 's top-env) #f)
+(check-equal? (top-interp '{equal? {fn {x} {+ x x}} {fn {x} {+ x x}}}) "false")
+(check-equal? (top-interp '{begin {kee := 3}}) "null")
+(check-exn (regexp (regexp-quote "Different numbers of ids and args DXUQ"))
+           (lambda () (top-interp '{{fn {x} {+ x x}} 1 2})))
+(check-equal? (top-interp '{let {k = 5} in {begin {k := 3} {+ k k}}}) "6")
+(check-equal? (top-interp '{substring {substring "abcd" 1 4} 1 3}) "cd")
+
+
+; while
+(define while '{let {while = "bogus"}
+                 in
+                 {begin {while := {fn {guard body} {if guard {while guard body} null}}}}})
+
+
+; in-order
+(define in-order '{let {in-order = "bogus"}
+                    in
+                    {in-order := {fn {arr len} {let {i = 0} in {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
+                                                                                  {aref arr i})
+                                                                              (begin {i := len} false)
+                                                                              (begin {i := (+ i 1)})}}}}}})
+#|
+
+define myWhile(guard body)
+  if (guard == false)
+    return null
+  else
+    myWhile(guard body)
+
+define in-order(array len)
+  i = 0
+  while(i <= (len - 2))
+    if(array[i+1] <= array[i]
+       return false
+  return true
+
+|#
+                                                                                            
+
+
 
