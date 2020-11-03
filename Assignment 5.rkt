@@ -540,29 +540,34 @@
 
 ; while
 (define while '{let {while = "bogus"}
-                 in
-                 {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}})
+                 in {begin
+                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+                 while}})
 
 
 ; in-order
 (define in-order '{let {in-order = "bogus"} in
-                    {in-order :=
-                            {fn {arr len}
-                                {let {i = 0} {valid = true} in
-                                  {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
-                                                                                 (<= {aref arr (+ i 1)}
-                                                                                     {aref arr i})
-                                                                                 (begin {i := (+ i 1)}
-                                                                                        {valid := false})
-                                                                                 (i := (+ i 1))}}}
-                                         valid}}}}})
+                    {begin
+                      {in-order :=
+                                {fn {arr len}
+                                    {let {i = 0} {valid = true} in
+                                      {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                     (<= {aref arr (+ i 1)}
+                                                                                         {aref arr i})
+                                                                                     (begin {i := (+ i 1)}
+                                                                                            {valid := false})
+                                                                                     (i := (+ i 1))}}}
+                                             valid}}}}
+                    in-order}})
 
-;(check-equal? (top-interp '{let {while = (unquote while)} in
-;                            {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}}) "true")
+
+(check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
+                            {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}})) "true")
 ;(top-interp (quote {let {while = (unquote while)} in
 ;                     {let {k = 0} in {while {fn {} {<= k 3}} {fn {} {k := (+ k 1)}}}}}))
 
 
+; if you run (top-interp <this code>) it correctly returns #t
 #|'{let {in-order = "bogus"} {while = "bogus"}
    in
    {begin
