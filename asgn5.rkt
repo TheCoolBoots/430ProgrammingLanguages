@@ -2,7 +2,7 @@
 
 (require typed/rackunit)
 
-; need to do while and in-order
+; passes all handin tests
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC asgnC Value))
@@ -518,20 +518,23 @@
            (lambda () {interp-aset! (list (arrayV 2 3) (numV 100) (strV "david"))}))
 
 ; while
-(define while `{let {while = "bogus"}
-                 in
-                 {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}})
+(define while '{let {while = "bogus"}
+                 in {begin
+                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+                 while}})
 
 
 ; in-order
-(define in-order `{let {in-order = "bogus"} in
-                    {in-order :=
-                            {fn {arr len}
-                                {let {i = 0} {valid = true} in
-                                  {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
-                                                                                 (<= {aref arr (+ i 1)}
-                                                                                     {aref arr i})
-                                                                                 (begin {i := (+ i 1)}
-                                                                                        {valid := false})
-                                                                                 (i := (+ i 1))}}}
-                                         valid}}}}})
+(define in-order '{let {in-order = "bogus"} in
+                    {begin
+                      {in-order :=
+                                {fn {arr len}
+                                    {let {i = 0} {valid = true} in
+                                      {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                     (<= {aref arr (+ i 1)}
+                                                                                         {aref arr i})
+                                                                                     (begin {i := (+ i 1)}
+                                                                                            {valid := false})
+                                                                                     (i := (+ i 1))}}}
+                                             valid}}}}
+                    in-order}})
