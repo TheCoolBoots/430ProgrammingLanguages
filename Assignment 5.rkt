@@ -548,17 +548,35 @@
 ; in-order
 (define in-order '{let {in-order = "bogus"}
                     in
-                    {in-order := {fn {arr len} {let {i = 0} in {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
-                                                                                  {aref arr i})
-                                                                              (begin {i := len} false)
-                                                                              (begin {i := (+ i 1)})}}}}}})
+                    {in-order := {fn {arr len}
+                                     {let {i = 0} {valid = true} in
+                                       {begin {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
+                                                                              {aref arr i})
+                                                                          (begin {valid := false})
+                                                                          (begin {i := (+ i 1)})}}
+                                              valid} }}} })
+
+'{let {in-order = "bogus"}
+                    in
+                    {begin
+                      {in-order :=
+                                {fn {arr len}
+                                    {let {i = 0} {valid = true} in
+                                      {begin {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
+                                                                             {aref arr i})
+                                                                         {valid := false}
+                                                                         {i := (+ i 1)}}}
+                                             valid}}}}
+                      {in-order {array 1 2 3} 3}}}
+
+
 #|
 
 define myWhile(guard body)
-  if (guard == false)
-    return null
-  else
+  if (guard == true)
     myWhile(guard body)
+  else
+    return null
 
 define in-order(array len)
   i = 0
