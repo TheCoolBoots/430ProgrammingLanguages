@@ -26,30 +26,6 @@
 
 (define reserved '(:= if let = in fn))
 
-; while
-(define while '{let {while = "bogus"}
-                 in
-                 {begin {while := {fn {guard}
-                                      {fn {body}
-                                          {if {guard}
-                                              {begin
-                                                {body}
-                                                {while guard body}}
-                                              false}}}}}})
-                                   
-; in-order
-(define in-order '{let
-                      {in-order = "null"}
-                    in
-                    {in-order := {fn {arr}
-                                   {fn {len}
-                                     {fn {n}
-                                       {fn {body}
-                                         {while {< n {- len 1}} {if
-                                                           {< {aref arr n} {aref arr {+ n 1}}}
-                                                           {+ n 1}
-                                                           false}}}}}}}})
-
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
 (define (interp exp env sto)
@@ -78,16 +54,9 @@
   (cond
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
-    [else
-     (define index (get-next-index sto))
-     (allocate sto args)
-     (cons (Bind (first symbols) index) (extend-env (rest symbols) (rest args) env sto))]))
-
-; gets the next index in the hash table
-(: allocate (-> Store (Listof Value) Integer))
-(define (allocate sto args)
-  (hash-set! sto (get-next-index sto) (first args))
-  (get-next-index sto))
+    [else (define nextIndex (get-next-index sto))
+          (hash-set! sto nextIndex (first args))
+          (cons (Bind (first symbols) nextIndex) (extend-env (rest symbols) (rest args) env sto))]))
 
 ; returns the next available index in the given store
 (: get-next-index (-> Store Integer))
@@ -199,7 +168,7 @@
 ; looks up a symbol in an environment then returns the value associated with the symbol
 (: lookup-env (-> Symbol Env Store Value))
 (define (lookup-env sym env sto)
-  (cond
+ (cond
     [(empty? env) (error "Environment binding not found DXUQ")]
     [(equal? (Bind-name (first env)) sym) (hash-ref sto (Bind-loc (first env)))]
     [else (lookup-env sym (rest env) sto)]))         
@@ -342,7 +311,9 @@
   (serialize (interp (parse s) top-env top-store)))
 
 
-(define top-env (list (Bind 'true 1)
+(define top-env (list
+                      (Bind 'null 0)
+                      (Bind 'true 1)
                       (Bind 'false 2)
                       (Bind '+ 3)
                       (Bind '- 4)
@@ -361,7 +332,7 @@
 (define-type Store (Mutable-HashTable Integer Value))
 (define top-store
   (ann (make-hash
-        (list (cons 0 (numV 9))
+        (list (cons 0 (nullV))
               (cons 1 (boolV #t))
               (cons 2 (boolV #f))
               (cons 3 (primV interp-add))
@@ -545,3 +516,22 @@
            (lambda () {interp-aref (list (arrayV 2 3) (numV 100))}))
 (check-exn (regexp (regexp-quote "Index out of bounds DXUQ"))
            (lambda () {interp-aset! (list (arrayV 2 3) (numV 100) (strV "david"))}))
+
+; while
+(define while `{let {while = "bogus"}
+                 in
+                 {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}})
+
+
+; in-order
+(define in-order `{let {in-order = "bogus"} in
+                    {in-order :=
+                            {fn {arr len}
+                                {let {i = 0} {valid = true} in
+                                  {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                 (<= {aref arr (+ i 1)}
+                                                                                     {aref arr i})
+                                                                                 (begin {i := (+ i 1)}
+                                                                                        {valid := false})
+                                                                                 (i := (+ i 1))}}}
+                                         valid}}}}})
