@@ -338,11 +338,6 @@
 (define (top-interp [s : Sexp]) : String
   (serialize (interp (parse s) top-env top-store)))
 
-; interprets a DXUQ program into a string
-(define (mid-interp [s : Sexp]) : Value
-  (interp (parse s) top-env top-store))
-
-
 
 (define top-env (list (Bind '+ 0)
                       (Bind '- 1)
@@ -546,40 +541,50 @@
 ; while
 (define while '{let {while = "bogus"}
                  in
-                 {while := {fn {guard body} {if guard {begin body {while guard body}} null}}}})
+                 {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}})
 
 
 ; in-order
-(define in-order '{let {in-order = "bogus"}
-                    in
+(define in-order '{let {in-order = "bogus"} in
                     {in-order :=
-                                {fn {arr len}
-                                    {let {i = 0} {valid = true} in
-                                      {begin {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
-                                                                             {aref arr i})
-                                                                         {valid := false}
-                                                                         {i := (+ i 1)}}}}}}}})
-                    
-#|'{let {in-order = "bogus"} {while = "bogus"}
-                    in
-                    {begin
-                      {while := {fn {guard body} {if guard {while guard body} null}}}
-                      {in-order :=
-                                {fn {arr len}
-                                    {let {i = 0} {valid = true} in
-                                      {begin {while {<= i (- len 2)} {if (<= {aref arr (+ i 1)}
-                                                                             {aref arr i})
-                                                                         {valid := false}
-                                                                         {i := (+ i 1)}}}
-                                             valid}}}}
-                      {in-order {array 1 2 3} 3}}}|#
+                            {fn {arr len}
+                                {let {i = 0} {valid = true} in
+                                  {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                 (<= {aref arr (+ i 1)}
+                                                                                     {aref arr i})
+                                                                                 (begin {i := (+ i 1)}
+                                                                                        {valid := false})
+                                                                                 (i := (+ i 1))}}}
+                                         valid}}}}})
 
-'{let {while = "bogus"} {k = 0}
+;(check-equal? (top-interp '{let {while = (unquote while)} in
+;                            {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}}) "true")
+(top-interp '{let {while = (unquote while)} in {let {k = 0} in {while {fn {} {<= k 3}} {fn {} {k := (+ k 1)}}}}})
+
+
+#|'{let {in-order = "bogus"} {while = "bogus"}
+   in
+   {begin
+     {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+     {in-order :=
+               {fn {arr len}
+                   {let {i = 0} {valid = true} in
+                     {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                    (<= {aref arr (+ i 1)}
+                                                                        {aref arr i})
+                                                                    (begin {i := (+ i 1)}
+                                                                            {valid := false})
+                                                                    (i := (+ i 1))}}}
+                            valid}}}}
+     {in-order {array 1 2 3} 3}}}|#
+
+
+#|'{let {while = "bogus"} {k = 0}
                     in
                     {begin
-                      {while := {fn {guard body} {if guard {begin body {while guard body}} null}}}
-                      {while {<= k 5} {k := (+ k 1)}}
-                      k}}
+                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+                      {while {fn {} {<= k 5}} {fn {} {k := (+ k 1)}}}
+                      k}}|#
 
 
 #|
