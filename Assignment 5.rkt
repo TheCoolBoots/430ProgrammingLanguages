@@ -559,7 +559,8 @@
 
 ;(check-equal? (top-interp '{let {while = (unquote while)} in
 ;                            {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}}) "true")
-(top-interp '{let {while = (unquote while)} in {let {k = 0} in {while {fn {} {<= k 3}} {fn {} {k := (+ k 1)}}}}})
+;(top-interp (quote {let {while = (unquote while)} in
+;                     {let {k = 0} in {while {fn {} {<= k 3}} {fn {} {k := (+ k 1)}}}}}))
 
 
 #|'{let {in-order = "bogus"} {while = "bogus"}
