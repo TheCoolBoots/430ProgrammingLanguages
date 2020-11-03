@@ -30,6 +30,30 @@
 
 (define reserved '(:= if let = in fn))
 
+
+; while
+(define while '{let {while = "bogus"}
+                 in {begin
+                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+                 while}})
+
+
+; in-order
+(define in-order '{let {in-order = "bogus"} in
+                    {begin
+                      {in-order :=
+                                {fn {arr len}
+                                    {let {i = 0} {valid = true} in
+                                      {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                     (<= {aref arr (+ i 1)}
+                                                                                         {aref arr i})
+                                                                                     (begin {i := (+ i 1)}
+                                                                                            {valid := false})
+                                                                                     (i := (+ i 1))}}}
+                                             valid}}}}
+                    in-order}})
+
+
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
 (define (interp exp env sto)
@@ -44,7 +68,7 @@
         (define new-env (extend-env ids interpretedArgs clo-env sto))
         (interp clo-body new-env sto)]
        [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args) sto)]
-       [other (error "Applied arguments to non-function DXUQ")])]
+       [other (error 'ERROR (string-append "DXUQ: Applied arguments to " (serialize interpretedBody)))])]
     [(lamC ids body) (cloV body ids env)]
     [(assignC id body) (interp-assignC exp env sto)]
     [(numV val) exp]
@@ -485,7 +509,7 @@
 (check-exn (regexp (regexp-quote "Invalid operands for substring DXUQ"))
            (lambda () {interp (appC (idC 'substring) (list arr1 (numV 4) (numV 3))) top-env top-store}))
 
-(check-exn (regexp (regexp-quote "Applied arguments to non-function DXUQ"))
+(check-exn (regexp (regexp-quote "DXUQ: Applied arguments to 5"))
            (lambda () {top-interp '{5 4 3}}))
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '{}}))
@@ -537,78 +561,9 @@
 (check-equal? (top-interp '{let {k = 5} in {begin {k := 3} {+ k k}}}) "6")
 (check-equal? (top-interp '{substring {substring "abcd" 1 4} 1 3}) "cd")
 
-
-; while
-(define while '{let {while = "bogus"}
-                 in {begin
-                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
-                 while}})
-
-
-; in-order
-(define in-order '{let {in-order = "bogus"} in
-                    {begin
-                      {in-order :=
-                                {fn {arr len}
-                                    {let {i = 0} {valid = true} in
-                                      {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
-                                                                                     (<= {aref arr (+ i 1)}
-                                                                                         {aref arr i})
-                                                                                     (begin {i := (+ i 1)}
-                                                                                            {valid := false})
-                                                                                     (i := (+ i 1))}}}
-                                             valid}}}}
-                    in-order}})
-
-
 (check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
                             {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}})) "true")
-;(top-interp (quote {let {while = (unquote while)} in
-;                     {let {k = 0} in {while {fn {} {<= k 3}} {fn {} {k := (+ k 1)}}}}}))
 
-
-; if you run (top-interp <this code>) it correctly returns #t
-#|'{let {in-order = "bogus"} {while = "bogus"}
-   in
-   {begin
-     {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
-     {in-order :=
-               {fn {arr len}
-                   {let {i = 0} {valid = true} in
-                     {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
-                                                                    (<= {aref arr (+ i 1)}
-                                                                        {aref arr i})
-                                                                    (begin {i := (+ i 1)}
-                                                                            {valid := false})
-                                                                    (i := (+ i 1))}}}
-                            valid}}}}
-     {in-order {array 1 2 3} 3}}}|#
-
-
-#|'{let {while = "bogus"} {k = 0}
-                    in
-                    {begin
-                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
-                      {while {fn {} {<= k 5}} {fn {} {k := (+ k 1)}}}
-                      k}}|#
-
-
-#|
-
-define myWhile(guard body)
-  if (guard == true)
-    myWhile(guard body)
-  else
-    return null
-
-define in-order(array len)
-  i = 0
-  while(i <= (len - 2))
-    if(array[i+1] <= array[i]
-       return false
-  return true
-
-|#
                                                                                             
 
 
