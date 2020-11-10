@@ -3,8 +3,8 @@
 (require typed/rackunit)
 
 
-; passes all handin test cases
-
+; not done yet
+; on Extend your type checker to handle variables and if expressions.
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC Value))
@@ -22,6 +22,9 @@
 
 (define-type Env (Listof Bind))
 (struct Bind ([name : Symbol] [val : Value]) #:transparent)
+
+(define-type TEnv (Listof TBind))
+(struct TBind ([name : Symbol] [t : Type]))
 
 (define-type Value (U numV strV primV boolV cloV))
 (struct numV  ([val : Real]) #:transparent)
@@ -177,6 +180,15 @@
     [(list types ... '-> ret) (funT (map (lambda (a) (parse-type a)) (cast types (Listof Sexp))) (parse-type ret))]
     [other (error "Invalid type DXUQ")]))
 
+; type checks a given exprC
+(: type-check (-> ExprC TEnv Type))
+(define (type-check e env)
+  (match e
+    [(numV n) (numT)]
+    [(strV n) (strT)]
+    [(boolV n) (boolT)]
+    [other (error "Type-check failure DXUQ")]))
+
 ; checks to see if an ID is not a reserved DXUQ4 keyword
 (: validID? (-> Symbol Boolean))
 (define (validID? sym)
@@ -316,3 +328,8 @@
            (lambda () {top-interp '{<= 1 +}}))
 (check-equal? (top-interp '{/ 1 1}) "1")
 (check-equal? (top-interp '{equal? + +}) "false")
+
+; test cases for check-type
+(check-equal? (type-check (numV 10) '()) (numT))
+(check-equal? (type-check (strV "david") '()) (strT))
+(check-equal? (type-check (boolV #f) '()) (boolT))
