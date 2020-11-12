@@ -269,8 +269,14 @@
     ; prove arg types match (t1 ...)
     ; extend type env to include mappings of symbols
     ; prove lamc->body is of t2
-    [(lamC ids body types) (define newTEnv (argTypesValid? ids types args tenv))
-                           (type-check body newTEnv)]
+    [(lamC ids body types) (define returnType (match (type-check lamc tenv)
+                                                [(fnT paramTs returnT) returnT]))
+                           (define newTEnv (argTypesValid? ids types args tenv))
+                           (define bodyType (type-check body newTEnv))
+                           
+                           (cond
+                             [(equal? bodyType returnType) returnType]
+                             [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" returnType bodyType)])]
     [other (error 'ERROR "Arguments applied to non-function ~e DXUQ" lamc)]))
 
 
