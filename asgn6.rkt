@@ -11,7 +11,7 @@
 (struct idC ([s : Symbol])                                      #:transparent)
 (struct fnC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 (struct appC ([fun : ExprC] [l : (Listof ExprC)]) #:transparent)
-(struct lamC ([arg : (Listof Symbol)] [body : ExprC]) #:transparent)
+(struct lamC ([arg : (Listof Symbol)] [body : ExprC] [t : (Listof Type)]) #:transparent)
 (struct assignC ([id : Symbol] [body : ExprC]) #:transparent)
 
 (define-type Value (U numV funV strV primV boolV closV arrayV nullV))
@@ -37,8 +37,8 @@
 
 
 (define-type Store (Mutable-HashTable Integer Value))
-
-; while
+(define keywords (list 'let 'in 'if 'fn ':=))
+#|; while
 (define while '{let {while = "bogus"}
                  in {begin
                       {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
@@ -62,7 +62,7 @@
 
 
 
-(define keywords (list 'let 'in 'if 'fn ':=))
+
 
 ;; interperets sexp into String
 (define (top-interp [s : Sexp]) : String
@@ -316,7 +316,7 @@
        [(and (< n1 n2) (>= n1 0) (<= n2 (string-length str))) (strV (substring str n1 n2))]
        [else (error "Invalid substring operation DXUQ")])]
     [other (error "Invalid substring operation DXUQ")]))
-
+|#
 
 ;;takes an s-expr, returns a ExprC
 (define (parse [s : Sexp]) : ExprC
@@ -331,9 +331,12 @@
     [(? string? str) (stringC str)]
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
     [(list 'if test then else) (ifC (parse test) (parse then) (parse else))]
-    [(list 'fn (list (? symbol? syms) ...) body) (cond
-                                                   [(equal? (check-duplicates syms) #f)
-                                                    (lamC (cast syms (Listof Symbol)) (parse body))]
+    [(list 'fn (list (list (? symbol? syms) (? symbol? syms2)) ...) body) (cond
+                                                   [(equal? (check-duplicates syms2) #f)
+                                                    (lamC (cast syms2 (Listof Symbol))
+                                                          (parse body)
+                                                          (map (lambda (x) (parse-type x))
+                                                               (cast syms (Listof Sexp))))]
                                                    [else (error "invalid format DXUQ")])]
     
     [(list expr expr2 ...) (cond
@@ -341,18 +344,15 @@
                        [else (appC (parse expr) (map (lambda (a) (parse a)) expr2))])]
     [else (error "invalid format DXUQ")]))
 
-
+;;parse the types
 (define (parse-type [s : Sexp]) : Type
   (match s
     ['num (numT)]
     ['bool (boolT)]
     ['str (strT)]
-    [(list ty ... '-> ret) (funT (parse-funT ty) (parse-type ret))]))
-
-(define (parse-funT [t : (Listof Any)]) : (Listof Type)
-  (cond
-    [(empty? t) '()]
-    [(cons (parse-type (cast (first t) Sexp)) (parse-funT (rest t)))]))
+    [(list ty ... '-> ret) (funT (map (lambda (t) (parse-type t))
+                                      (cast ty (Listof Sexp)))
+                                 (parse-type ret))]))
     
 (check-equal? (parse-type 'num) (numT))
 (check-equal? (parse-type 'bool) (boolT))
@@ -379,6 +379,90 @@
                                         [(list (? symbol? s) '= expr) expr])) mappings))
   (parse (cast (cons (list 'fn ids body) args) Sexp)))
 
+
+;;type checker
+(define (type-check [expr : ExprC] [te : TEnv]) : Type
+  (match expr
+    [(numC n) (numT)]
+    [(stringC s) (strT)]
+    [(idC s) (lookup-type s te)]
+    [(lamC args body t) (define new-env (extend-type-env te args t)) (funT t (type-check body new-env))]
+    [(appC fun l) (define ft (type-check fun te))
+                  (define la (map (lambda ([x : ExprC]) (type-check x te)) l))
+                  (cond
+                    [(not (funT? ft)) (error "not a function DXUQ")]
+                    [(not (equal? (funT-t ft) la))
+                     (error "app arg type mismatch DXUQ")]
+                    [else (funT-ret ft)])]
+    [(ifC test then else) (cond
+                            [(equal? (type-check test te) (boolT))
+                             (define a (type-check then te))
+                             (define b (type-check else te))
+                             (if (equal? a b) a (error "invalid format DXUQ"))]
+                            [else (error "test does not return boolean DXUQ")])]))
+
+;;lookup type in environment
+(define (lookup-type [s : Symbol] [te : TEnv]) : Type
+  (cond
+    [(empty? te) (error "symbol not found in type-env DXUQ")]
+    [else (cond
+            [(equal? s (BindT-s (first te))) (BindT-t (first te))]
+            [else (lookup-type s (rest te))])]))
+
+;;extend type environment
+(define (extend-type-env [te : TEnv] [syms : (Listof Symbol)] [t : (Listof Type)]) : TEnv
+  (cond
+    [(empty? syms) te]
+    [else (cons (BindT (first syms) (first t)) (extend-type-env te (rest syms) (rest t)))]))
+
+
+
+
+(struct BindT ([s : Symbol] [t : Type]) #:transparent)
+(define-type TEnv (Listof BindT))
+(define base-tenv (list (BindT 'num (numT))
+                        (BindT 'bool (boolT))
+                        (BindT 'str (strT))
+                        (BindT '+ (funT (list (numT) (numT)) (numT)))
+                        (BindT '* (funT (list (numT) (numT)) (numT)))
+                        (BindT '/ (funT (list (numT) (numT)) (numT)))
+                        (BindT '- (funT (list (numT) (numT)) (numT)))
+                        (BindT '<= (funT (list (numT) (numT)) (boolT)))
+                        (BindT 'num-eq? (funT (list (numT) (numT)) (boolT)))
+                        (BindT 'str-eq? (funT (list (strT) (strT)) (boolT)))
+                        (BindT 'substring (funT (list (strT) (numT) (numT)) (strT)))
+                        (BindT 'true (boolT))
+                        (BindT 'false (boolT))))
+                        
+
+(check-equal? (type-check (numC 5) base-tenv) (numT))
+(check-equal? (type-check (stringC "hello") base-tenv) (strT))
+(check-equal? (type-check (idC 'num) base-tenv) (numT))
+(check-equal? (type-check (appC (idC '+) (list (numC 1) (numC 2))) base-tenv)
+              (numT))
+(check-equal? (type-check (parse '(if (<= 0 1) 1 2)) base-tenv) (numT))
+(check-exn (regexp (regexp-quote "test does not return boolean DXUQ"))
+           (lambda () (type-check (ifC (numC 1) (numC 2) (stringC "hello")) base-tenv)))
+(check-exn (regexp (regexp-quote "app arg type mismatch DXUQ"))
+           (lambda () (type-check (appC (idC '+) (list (numC 1) (stringC "a"))) base-tenv)))
+(check-exn (regexp (regexp-quote "invalid format DXUQ"))
+           (lambda () (type-check (parse '(if (<= 1 2) 1 "hello")) base-tenv)))
+(check-exn (regexp (regexp-quote "not a function DXUQ"))
+           (lambda () (type-check (parse '(1 2 3)) base-tenv)))
+
+
+(check-equal? (lookup-type 'num base-tenv) (numT))
+(check-equal? (lookup-type 'str base-tenv) (strT))
+(check-exn (regexp (regexp-quote "symbol not found in type-env DXUQ"))
+           (lambda () (lookup-type 'n base-tenv)))
+
+
+(check-equal? (extend-type-env '() '(a b) (list (numT) (numT))) (list (BindT 'a (numT))
+                                                                      (BindT 'b (numT))))
+
+(check-equal? (type-check (parse '(fn () (+ 1 2))) base-tenv) (funT (list) (numT)))
+(check-equal? (type-check (parse '(fn ([num x]) (+ x 1))) base-tenv) (funT (list (numT)) (numT)))
+
 ;;define the top environment 
 (define top-env (list (Bind '+ 1)
                         (Bind '- 2)
@@ -398,7 +482,7 @@
                         (Bind 'null 16)))
 
 ;;define the top store
-(define top-store (ann (make-hash
+#|(define top-store (ann (make-hash
                         (list (cons 1 (primV interp-add))
                               (cons 2 (primV interp-sub))
                               (cons 3 (primV interp-mult))
@@ -669,3 +753,4 @@
 ;invalid format DXUQ
 (check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
                             {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}})) "true")
+|#
