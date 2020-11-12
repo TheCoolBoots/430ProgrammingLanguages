@@ -7,12 +7,16 @@
 
 
 ; definitions for ExprC types
-(define-type ExprC (U idC appC condC lamC assignC Value))
+(define-type ExprC (U idC appC condC lamC assignC numC strC primC boolC))
 (struct idC ([s : Symbol]) #:transparent)
 (struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
 (struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
 (struct assignC ([id : Symbol] [body : ExprC]) #:transparent)
+(struct numC  ([val : Real]) #:transparent)
+(struct strC  ([val : String]) #:transparent)
+(struct primC ([op : (-> (Listof Value) Store Value)]) #:transparent)
+(struct boolC ([val : Boolean]) #:transparent)
 
 (define-type Store (Mutable-HashTable Integer Value))
 
@@ -28,7 +32,13 @@
 (struct arrayV ([startIndex : Integer] [length : Integer]) #:transparent)
 (struct nullV ([val : Integer]) #:transparent)
 
-(define reserved '(:= if let = in fn))
+(define reserved '(if : = let in rec fn ->))
+
+(define-type Type (U fnT numT boolT strT))
+(struct fnT ([paramTypes : (Listof Type)] [returnType : Type]))
+(struct numT ([num : numV]))
+(struct boolT ([bool : boolV]))
+(struct strT ([str : strV]))
 
 
 ; while

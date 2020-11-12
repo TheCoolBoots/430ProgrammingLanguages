@@ -1,0 +1,21 @@
+#lang scribble/manual
+
+
+1. Graham and his co-founders knew Lisp well. Rather than learn a whole new language they stuck with
+what they knew best. Lisp also allowed for rapid development. They were able to write code faster than
+their competitors and deploy features just days after competitors announced competing features. This
+allowed them to completely outpace and out-perform competitors until they were the only ones left.
+Lastly, Lisp allowed Graham and his team to do things that simply weren't possible in other high
+level languages. He mentioned that 20-25% of the code was only possible in Lisp which also gave them
+an edge.
+
+2. According to Graham, there is a programming language that exists that is fundimentally better
+than other programming languages. This is significant because it naturally leads to the next question,
+"What is the best programming language." Like Graham says, I think the answer will change based on who
+you ask and there is someone on top of everything that can say definitively what the best language is.
+Another claim Graham makes is that programming language evolution moves "as slow as an iceberg." I have
+always considered languages as a constant -- I don't ever expect Java or Python to evolve so much that
+I wouldn't recognize it.
+
+3. Who created the language and for what reason? Who is using the language? Why do people choose to
+use the language?

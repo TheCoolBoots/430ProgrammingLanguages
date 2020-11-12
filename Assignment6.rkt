@@ -11,10 +11,7 @@
 (struct idC ([s : Symbol]) #:transparent)
 (struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
 (struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
-(struct lamC ([ids : (Listof Symbol)] [body : ExprC]) #:transparent)
-
-(define-type Env (Listof Bind))
-(struct Bind ([name : Symbol] [val : Value]) #:transparent)
+(struct lamC ([ids : (Listof Symbol)] [body : ExprC] [argTypes : (Listof Type)]) #:transparent)           ;  [argTypes : (Listof Type)]
 
 (define-type Value (U numV strV primV boolV cloV))
 (struct numV  ([val : Real]) #:transparent)
@@ -23,8 +20,18 @@
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
 
-(define reserved '(fn let if =))
+(define-type Type (U numT strT boolT fnT))
+(struct numT () #:transparent)
+(struct strT () #:transparent)
+(struct boolT () #:transparent)
+(struct fnT ([paramTs : (Listof Type)] [returnT : Type]) #:transparent)
 
+(define-type Env (Mutable-HashTable Symbol Value))
+(define-type TEnv (Mutable-HashTable Symbol Type))
+
+(define reserved '(if : = let in rec fn ->))
+
+#|
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Value))
 (define (interp exp env)
@@ -152,43 +159,6 @@
                    [else (interp else env)])]
     [other (error "Invalid operands for DXUQ if")]))
 
-
-; takes in s-expr and parses to create ExprC
-(: parse (-> Sexp ExprC))
-(define (parse s)
-  (match s
-    [(? real? n) (numV n)]
-    [(? string? s) (strV s)]
-    [(? symbol? s) #:when (validID? s) (idC s)]
-    [(list 'fn (list ids ...) expr) #:when
-                                    (and (equal? (remove-duplicates ids) ids) (andmap (lambda (a) (symbol? a)) ids))
-                                    (lamC (cast ids (Listof Symbol)) (parse expr))]
-    [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
-    [(list 'let mappings ... 'in body) (parse-let mappings body)]
-    [(list 'when cond sec) (condC (parse cond) (strV "null") (parse sec))]
-    [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
-    [other (error "Invalid format DXUQ")]))
-
-
-; checks to see if an ID is not a reserved DXUQ4 keyword
-(: validID? (-> Symbol Boolean))
-(define (validID? sym)
-  (cond
-    [(member sym reserved) #f]
-    [else #t]))
-
-
-; desugars a let statement into a function application (appC)
-(: parse-let (-> (Listof Any) Sexp ExprC))
-(define (parse-let mappings body)
-  (define ids (map (lambda (mapping) (match mapping
-                                       [(list (? symbol? s) '= expr) s]
-                                       [other (error "Invalid formatting for let statement DXUQ")])) mappings))
-  (define args (map (lambda (mapping) (match mapping
-                                        [(list (? symbol? s) '= expr) expr])) mappings))
-  (parse (cast (cons (list 'fn ids body) args) Sexp)))
-
-
 ; serializes a value into a string
 (: serialize (-> Value String))
 (define (serialize val)
@@ -206,7 +176,6 @@
 (define (top-interp [s : Sexp]) : String
   (serialize (interp (parse s) top-env)))
 
-
 (define top-env (list (Bind 'true (boolV #t))
                       (Bind 'false (boolV #f))
                       (Bind '+ (primV interp-add))
@@ -215,77 +184,109 @@
                       (Bind '/ (primV interp-div))
                       (Bind '<= (primV interp-leq))
                       (Bind 'equal? (primV interp-equal))
-                      (Bind 'error (primV interp-error))))
+                      (Bind 'error (primV interp-error))))|#
+
+(define top-t-env
+  (ann (make-hash
+        (list (cons '+ (fnT (list (numT) (numT)) (numT)))
+              (cons '- (fnT (list (numT) (numT)) (numT)))
+              (cons '* (fnT (list (numT) (numT)) (numT)))
+              (cons '/ (fnT (list (numT) (numT)) (numT)))
+              (cons '<= (fnT (list (numT) (numT)) (boolT)))
+              (cons 'num-eq? (fnT (list (numT) (numT)) (boolT)))
+              (cons 'str-eq? (fnT (list (strT) (strT)) (boolT)))
+              (cons 'substring (fnT (list (strT) (numT)) (numT)))
+              (cons 'true (boolT))
+              (cons 'false (boolT))))
+       TEnv))
 
 
-(check-equal? (interp-cond (boolV #t) (numV 1) (numV 2) '()) (numV 1))
-(check-equal? (interp-cond (boolV #f) (numV 1) (numV 2) '()) (numV 2))
+; takes in s-expr and parses to create ExprC
+(: parse (-> Sexp ExprC))
+(define (parse s)
+  (match s
+    [(? real? n) (numV n)]
+    [(? string? s) (strV s)]
+    [(? symbol? s) #:when (not (member s reserved)) (idC s)]
+    [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
+    [(list 'let mappings ... 'in body) (parse-let mappings body)]
+    [(list 'fn (list ty_ids ...) expr) (define types (map (lambda (ty_id) (match ty_id
+                                                                            [(list type (? symbol? id)) (parse-type (cast type Sexp))]
+                                                                            [other (error 'ERROR "cannot parse ~e" ty_id)])) ty_ids))
+                                       (define ids (map (lambda (ty_id) (match ty_id
+                                                                            [(list type (? symbol? id)) id])) ty_ids))
+                                       (lamC ids (parse expr) types)]
+    [(list 'rec (list (list fnName ty_ids ...) ': returnTy recursiveBody) body) (numV 0)]  ; desugars into something like a let 
+    [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
+    [other (error "Invalid format DXUQ")]))
 
-(check-equal? (extend-env '(a b c) (list (numV 1) (numV 2) (numV 3)) '())
-              (list (Bind 'a (numV 1)) (Bind 'b (numV 2)) (Bind 'c (numV 3))))
 
-(check-equal? (interp (idC 's) (list (Bind 's (numV 3)))) (numV 3))
-(check-equal? (interp (idC 's) (list (Bind 's (strV "hi")))) (strV "hi"))
-(check-equal? (interp (idC 's) (list (Bind 's (boolV #t)))) (boolV #t))
+; parses s-expr into type
+(: parse-type (-> Sexp Type))
+(define (parse-type exp)
+  (match exp
+    ['num (numT)]
+    ['bool (boolT)]
+    ['str (strT)]
+    [(list ty ... '-> rety) (fnT (map (lambda (type) (parse-type type)) (cast ty (Listof Sexp))) (parse-type rety))]
+    [other (error 'ERROR "Cannot parse ~e into a type DXUQ6" exp)])) 
 
-(check-equal? (top-interp '{if {<= 3 5} 3 5}) "3")
-(check-equal? (top-interp '{if true 3 5}) "3")
-(check-equal? (top-interp '{if false "hi" "bye"}) "bye")
-(check-exn (regexp (regexp-quote "Invalid number of arguments for + DXUQ"))
-           (lambda () {top-interp '{+ 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for - DXUQ"))
-           (lambda () {top-interp '{- 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for * DXUQ"))
-           (lambda () {top-interp '{* 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for / DXUQ"))
-           (lambda () {top-interp '{/ 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for <= DXUQ"))
-           (lambda () {top-interp '{<= 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
-           (lambda () {top-interp '{equal? 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
-           (lambda () {top-interp '{error 1 1 2}}))
-(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
-           (lambda () {top-interp '{+ let if}}))
 
-(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
-           (lambda () {top-interp '{+ true 5}}))
+; desugars a let statement into a function application (appC)
+(: parse-let (-> (Listof Any) Sexp ExprC))
+(define (parse-let mappings body)
+  (define ty_ids (map (lambda (mapping) (match mapping
+                                       [(list type (? symbol? s) '= expr) (list type s)]
+                                       [other (error "Invalid formatting for let statement DXUQ")])) mappings))
+  (define args (map (lambda (mapping) (match mapping
+                                        [(list type (? symbol? s) '= expr) expr])) mappings))
+  (parse (cast (cons (list 'fn ty_ids body) args) Sexp)))
 
-(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
-           (lambda () {top-interp '{- true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
-           (lambda () {top-interp '{* true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
-           (lambda () {top-interp '{/ true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
-           (lambda () {top-interp '{<= true 5}}))
-(check-exn (regexp (regexp-quote "Invalid operands for DXUQ if"))
-           (lambda () {top-interp '{if 5 true 5}}))
 
-(check-exn (regexp (regexp-quote "Different numbers of ids and args DXUQ"))
-           (lambda () {top-interp '{{fn {a} {+ a 1}} 1 2}}))
-(check-exn (regexp (regexp-quote "Environment binding not found DXUQ"))
-           (lambda () {top-interp '{{fn {a} {+ b 1}} 1}}))
+; proves that the given expression is valid. Throws error if invalid
+(: type-check (-> ExprC TEnv Type))
+(define (type-check exp tenv)
+  (match exp
+    [(idC sym) (hash-ref tenv sym)] ; return type in type-env
+    [(condC if then else) (match (type-check if tenv)
+                            [(boolT) (define thenType (type-check then tenv))
+                                     (define elseType (type-check else tenv))
+                                     (cond
+                                       [(equal? thenType elseType) thenType]
+                                       [else (error 'ERROR "~e and ~e types don't match in if statement DXUQ" then else)])]
+                            [other (error 'ERROR "~e not of type boolean DXUQ" if)])]; make sure type of if is boolean, then & else have same type, return type of then
+    [(appC body args) (numT)] ; arg types must match param types of body, extend type-env, return type of body return
+    [(lamC ids body types) (fnT types (type-check body tenv))] ; return type of body
+    [(boolV val) (boolT)]
+    [(numV n) (numT)]
+    [(strV str) (strT)]))
 
-(check-equal? (top-interp '{equal? "hello" "hello"}) "true")
-(check-equal? (top-interp '{equal? "hello" "bye"}) "false")
-{check-equal? (top-interp '{let {b = 5} {a = 5} in {+ a b}}) "10"}
-(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
-           (lambda () {top-interp '{let {a = 12 1} in {+ a 2}}}))
-(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
-           (lambda () {top-interp '{let {a =} in {+ a 2}}}))
 
-(check-exn (regexp (regexp-quote "Applied arguments to non-function DXUQ"))
-           (lambda () {top-interp '{5 4 3}}))
-(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
-           (lambda () {top-interp '{}}))
-(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
-           (lambda () {top-interp '{error "hi"}}))
-(check-equal? (top-interp '(fn () 9)) "#<procedure>")
-(check-equal? (top-interp '+) "#<primop>")
-(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
-           (lambda () {top-interp '(fn (x x) 3)}))
-(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
-           (lambda () {top-interp '(fn (3 4 5) 6)}))
-(check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
-(check-equal? (interp (parse '((fn (minus) (minus 2 1)) (fn (x y) (- x y)))) top-env) (numV 1))
+(: type-check-app (-> ExprC (Listof ExprC) TEnv Type))
+(define (type-check-app lamc args tenv)
+  (match lamc
+    ; prove lamc is fn (t1 ...) -> t2
+    ; prove arg types match (t1 ...)
+    ; extend type env to include mappings of symbols
+    ; prove lamc->body is of t2
+    [(lamC ids body types) (define newTEnv (argTypesValid? ids types args tenv))
+                           (type-check body newTEnv)]
+    [other (error 'ERROR "Arguments applied to non-function ~e DXUQ" lamc)]))
+
+
+; helper function for checking appC param and arg types
+(: argTypesValid? (-> (Listof Symbol) (Listof Type) (Listof ExprC) TEnv TEnv))
+(define (argTypesValid? ids targetTypes args tenv)
+  (cond
+    [(xor (empty? targetTypes) (empty? args)) (error 'ERROR "unequal numbers of params and args DXUQ")]
+    [(empty? targetTypes) tenv]
+    [(equal? (first targetTypes) (type-check (first args) tenv)) (hash-set! tenv (first ids) (first targetTypes))
+                                                                 (argTypesValid? (rest ids) (rest targetTypes) (rest args) tenv)]
+    [else (error 'ERROR "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
+
+; tests for parse
+(check-equal? (parse '{let {num s = 5} in {+ s s}})
+              (appC (lamC (list 's) (appC (idC '+) (list (idC 's) (idC 's))) (list (numT))) (list (numV 5))))
+(check-equal? (parse '{if true "hi" "bye"}) (condC (idC 'true) (strV "hi") (strV "bye")))
+
+
