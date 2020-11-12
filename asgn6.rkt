@@ -4,7 +4,7 @@
 
 
 ; not done yet
-; on Extend your type checker to handle variables and if expressions.
+;Extend your type checker to handle applications.
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC Value))
@@ -33,7 +33,7 @@
 (struct boolV ([val : Boolean]) #:transparent)
 (struct cloV  ([body : ExprC] [args : (Listof Symbol)] [clo-env : Env]) #:transparent)
 
-(define reserved '(fn let if =))
+(define reserved '(if : = let in rec fn ->))
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Value))
@@ -55,8 +55,6 @@
     [(numV n) exp]
     [(strV str) exp]))
 
-
-
 ; returns extended environment including given symbols/ExprC's
 (: extend-env (-> (Listof Symbol) (Listof Value) Env Env))
 (define (extend-env symbols args env)
@@ -64,15 +62,6 @@
     [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else (cons (Bind (first symbols) (first args)) (extend-env (rest symbols) (rest args) env))]))
-
-
-; interprets user-defined error
-(: interp-error (-> (Listof Value) numV))
-(define (interp-error args)
-  (cond
-    [(not (equal? (length args) 1)) (error "Invalid number of arguments for error DXUQ")]
-    [else (error (string-append "User Error DXUQ: " (serialize (first args))))]))
-
 
 ; interprets equal?
 (: interp-equal (-> (Listof Value) boolV))
@@ -146,6 +135,14 @@
     [(equal? (Bind-name (first env)) sym) (Bind-val (first env))]
     [else (lookup-env sym (rest env))]))         
 
+; looks up a symbol in an type environment then returns the type associated with the symbol
+(: lookup-tenv (-> Symbol TEnv Type))
+(define (lookup-tenv sym env)
+  (cond
+    [(empty? env) (error "Environment binding not found DXUQ")]
+    [(equal? (TBind-name (first env)) sym) (TBind-t (first env))]
+    [else (lookup-tenv sym (rest env))]))         
+
 ; interprets a DXUQ if statement and returns a Value
 (: interp-cond (-> ExprC ExprC ExprC Env Value))
 (define (interp-cond if then else env)
@@ -187,6 +184,15 @@
     [(numV n) (numT)]
     [(strV n) (strT)]
     [(boolV n) (boolT)]
+    [(idC n) (lookup-tenv n env)]
+    [(condC if then else) (match (type-check if env)
+                            [(boolT) (define thenT (type-check then env))
+                                     (define elseT (type-check else env))
+                                     (cond
+                                       [(equal? thenT elseT) thenT]
+                                       [else (error "Type of statements following if don't match DXUQ")])]
+                            [other (error "If statement doesn't have type boolean DXUQ")])]
+    [(appC fun args) (error "NEED TO IMPLEMENT")]
     [other (error "Type-check failure DXUQ")]))
 
 ; checks to see if an ID is not a reserved DXUQ4 keyword
@@ -229,8 +235,16 @@
                       (Bind '* (primV interp-mult))
                       (Bind '/ (primV interp-div))
                       (Bind '<= (primV interp-leq))
-                      (Bind 'equal? (primV interp-equal))
-                      (Bind 'error (primV interp-error))))
+                      (Bind 'equal? (primV interp-equal))))
+
+(define top-tenv (list (TBind '+ (funT (list (numT) (numT)) (numT)))
+                       (TBind '- (funT (list (numT) (numT)) (numT)))
+                       (TBind '* (funT (list (numT) (numT)) (numT)))
+                       (TBind '/ (funT (list (numT) (numT)) (numT)))
+                       (TBind '<= (funT (list (numT) (numT)) (boolT)))
+                       (TBind 'num-eq? (funT (list (numT) (numT)) (boolT)))
+                       (TBind 'str-eq? (funT (list (strT) (strT)) (boolT)))
+                       (TBind 'substring (funT (list (strT) (numT) (numT)) (strT)))))
 
 ;test cases
 
@@ -259,8 +273,6 @@
            (lambda () {top-interp '{<= 1}}))
 (check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
            (lambda () {top-interp '{equal? 1}}))
-(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
-           (lambda () {top-interp '{error 1 1 2}}))
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '{+ let if}}))
 
@@ -295,8 +307,6 @@
            (lambda () {top-interp '{5 4 3}}))
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
            (lambda () {top-interp '{}}))
-(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
-           (lambda () {top-interp '{error "hi"}}))
 (check-equal? (top-interp '(fn () 9)) "#<procedure>")
 (check-equal? (top-interp '+) "#<primop>")
 (check-exn (regexp (regexp-quote "Invalid format DXUQ"))
@@ -333,3 +343,12 @@
 (check-equal? (type-check (numV 10) '()) (numT))
 (check-equal? (type-check (strV "david") '()) (strT))
 (check-equal? (type-check (boolV #f) '()) (boolT))
+(check-equal? (type-check (idC 's) (list (TBind 's (numT)))) (numT))
+(check-equal? (type-check (idC 'x) (list (TBind 's (numT)) (TBind 'x (strT)))) (strT))
+(check-exn (regexp (regexp-quote "Environment binding not found DXUQ"))
+           (lambda () {type-check (idC 's) '()}))
+(check-equal? (type-check (condC (boolV #f) (numV 10) (numV 11)) '()) (numT))
+(check-exn (regexp (regexp-quote "If statement doesn't have type boolean DXUQ"))
+           (lambda () {type-check (condC (numV 1) (numV 1) (numV 1)) '()}))
+(check-exn (regexp (regexp-quote "Type of statements following if don't match DXUQ"))
+           (lambda () {type-check (condC (boolV #t) (numV 1) (strV "david")) '()}))
