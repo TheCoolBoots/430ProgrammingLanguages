@@ -212,7 +212,7 @@
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
     [(list 'fn (list ty_ids ...) expr) (define types (map (lambda (ty_id) (match ty_id
                                                                             [(list type (? symbol? id)) (parse-type (cast type Sexp))]
-                                                                            [other (error 'ERROR "cannot parse ~e" ty_id)])) ty_ids))
+                                                                            [other (error 'DXUQ "cannot parse ~e" ty_id)])) ty_ids))
                                        (define ids (map (lambda (ty_id) (match ty_id
                                                                             [(list type (? symbol? id)) id])) ty_ids))
                                        (lamC ids (parse expr) types)]
@@ -229,7 +229,7 @@
     ['bool (boolT)]
     ['str (strT)]
     [(list ty ... '-> rety) (fnT (map (lambda (type) (parse-type type)) (cast ty (Listof Sexp))) (parse-type rety))]
-    [other (error 'ERROR "Cannot parse ~e into a type DXUQ6" exp)])) 
+    [other (error 'DXUQ "Cannot parse ~e into a type" exp)])) 
 
 
 ; desugars a let statement into a function application (appC)
@@ -237,7 +237,7 @@
 (define (parse-let mappings body)
   (define ty_ids (map (lambda (mapping) (match mapping
                                        [(list type (? symbol? s) '= expr) (list type s)]
-                                       [other (error "Invalid formatting for let statement DXUQ")])) mappings))
+                                       [other (error 'DXUQ "Invalid formatting for let statement ~e" mapping)])) mappings))
   (define args (map (lambda (mapping) (match mapping
                                         [(list type (? symbol? s) '= expr) expr])) mappings))
   (parse (cast (cons (list 'fn ty_ids body) args) Sexp)))
@@ -253,8 +253,8 @@
                                      (define elseType (type-check else tenv))
                                      (cond
                                        [(equal? thenType elseType) thenType]
-                                       [else (error 'ERROR "~e and ~e types don't match in if statement DXUQ" then else)])]
-                            [other (error 'ERROR "~e not of type boolean DXUQ" if)])]; make sure type of if is boolean, then & else have same type, return type of then
+                                       [else (error 'DXUQ "~e and ~e types don't match in if statement" then else)])]
+                            [other (error 'DXUQ "~e not of type boolean" if)])]; make sure type of if is boolean, then & else have same type, return type of then
     [(appC body args) (numT)] ; arg types must match param types of body, extend type-env, return type of body return
     [(lamC ids body types) (fnT types (type-check body tenv))] ; return type of body
     [(boolV val) (boolT)]
@@ -277,18 +277,18 @@
                            (cond
                              [(equal? bodyType returnType) returnType]
                              [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" returnType bodyType)])]
-    [other (error 'ERROR "Arguments applied to non-function ~e DXUQ" lamc)]))
+    [other (error 'ERROR "Arguments applied to non-function ~e" lamc)]))
 
 
 ; helper function for checking appC param and arg types
 (: argTypesValid? (-> (Listof Symbol) (Listof Type) (Listof ExprC) TEnv TEnv))
 (define (argTypesValid? ids targetTypes args tenv)
   (cond
-    [(xor (empty? targetTypes) (empty? args)) (error 'ERROR "unequal numbers of params and args DXUQ")]
+    [(xor (empty? targetTypes) (empty? args)) (error 'DXUQ "unequal numbers of params and args")]
     [(empty? targetTypes) tenv]
     [(equal? (first targetTypes) (type-check (first args) tenv)) (hash-set! tenv (first ids) (first targetTypes))
                                                                  (argTypesValid? (rest ids) (rest targetTypes) (rest args) tenv)]
-    [else (error 'ERROR "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
+    [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
 
 ; tests for parse
 (check-equal? (parse '{let {num s = 5} in {+ s s}})
