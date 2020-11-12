@@ -13,6 +13,7 @@
 (struct appC ([fun : ExprC] [l : (Listof ExprC)]) #:transparent)
 (struct lamC ([arg : (Listof Symbol)] [body : ExprC] [t : (Listof Type)]) #:transparent)
 (struct assignC ([id : Symbol] [body : ExprC]) #:transparent)
+(struct recC ([name : Symbol] [val : Real] [body : ExprC]) #:transparent)
 
 (define-type Value (U numV funV strV primV boolV closV arrayV nullV))
 (struct numV ([n : Real]) #:transparent)
@@ -38,6 +39,7 @@
 
 (define-type Store (Mutable-HashTable Integer Value))
 (define keywords (list 'let 'in 'if 'fn ':=))
+
 #|; while
 (define while '{let {while = "bogus"}
                  in {begin
@@ -326,33 +328,34 @@
                           [(ExprC-keyword? id keywords) (error "invalid format DXUQ")]
                           [else (assignC id (parse body))])]
     [(? symbol? sym) (cond
-                       [(ExprC-keyword? sym keywords) (error "invalid format DXUQ")]
+                       [(ExprC-keyword? sym keywords) (error "invalid format DXUQ word")]
                        [else (idC sym)])]
     [(? string? str) (stringC str)]
     [(list 'let (list ty sym '= sym2) ... 'in body) (parse-let2 ty sym sym2 body)]
     [(list 'if test then else) (ifC (parse test) (parse then) (parse else))]
-    [(list 'fn (list (list (? symbol? syms) (? symbol? syms2)) ...) body) (cond
+    [(list 'fn (list (list ty (? symbol? syms2)) ...) body) (cond
                                                    [(equal? (check-duplicates syms2) #f)
                                                     (lamC (cast syms2 (Listof Symbol))
                                                           (parse body)
                                                           (map (lambda (x) (parse-type x))
-                                                               (cast syms (Listof Sexp))))]
+                                                               (cast ty (Listof Sexp))))]
                                                    [else (error "invalid format DXUQ")])]
-    
+    [(list 'rec (list (list (? symbol? sym) (list (? symbol? sym2) (? symbol? sym3)) ...)
+                      ': (? symbol? sym4) (? symbol? sym5)) expr) (numC 1)]
     [(list expr expr2 ...) (cond
                        [(empty? expr) (error "invalid format DXUQ")]
                        [else (appC (parse expr) (map (lambda (a) (parse a)) expr2))])]
+    
     [else (error "invalid format DXUQ test")]))
+
 
 
 (define (parse-let2 [t : (Listof Any)] [l : (Listof Any)] [l2 : (Listof Any)] [body : Sexp]) : ExprC
   (define ids (cast l (Listof Symbol)))
-  ;(define types (map (lambda ([x : Symbol]) (parse-type x)) (cast types (Listof Symbol))))
-  (define types (cast t (Listof Symbol)))
-  ;(define vals (cast l2 (Listof Symbol)))
-  (parse (cast (cons (list 'fn (let-helper types ids) body) l2) Sexp)))
+  (parse (cast (cons (list 'fn (let-helper t ids) body) l2) Sexp)))
 
-(define (let-helper [t : (Listof Symbol)] [var : (Listof Symbol)]) : Sexp
+
+(define (let-helper [t : (Listof Any)] [var : (Listof Symbol)]) : Sexp
   (cond
     [(and (empty? t) (empty? var)) '()]
     [else (cast (cons (list (first t) (first var)) (let-helper (rest t) (rest var))) Sexp)]))
