@@ -12,7 +12,7 @@
 (struct appC ([body : ExprC] [args : (Listof ExprC)]) #:transparent)
 (struct condC ([if : ExprC] [then : ExprC] [else : ExprC]) #:transparent)
 (struct lamC ([ids : (Listof Symbol)] [body : ExprC] [argTypes : (Listof Type)]) #:transparent)
-(struct recC ([fnName : Symbol] [params : (Listof Symbol)] [argTs : (Listof Type)]
+(struct recC ([fnName : Symbol] [params : (Listof Symbol)] [paramTs : (Listof Type)]
                               [retT : Type] [body : ExprC] [use : ExprC]) #:transparent)
 
 (define-type Value (U numV strV primV boolV cloV))
@@ -52,9 +52,13 @@
         (define interpretedArgs (map (lambda ([arg : ExprC]) (interp arg env sto)) args))
         (define new-env (extend-env ids interpretedArgs clo-env sto))
         (interp clo-body new-env sto)]
-       [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args))]
-       [other (error 'ERROR (string-append "DXUQ: Applied arguments to " (serialize interpretedBody)))])]
-    ;[(lamC ids body) (cloV body ids env)]
+       [(primV func) (func (map (lambda ([arg : ExprC]) (interp arg env sto)) args))])]
+    [(lamC ids body types) (cloV body ids env)]
+    [(recC fnName params paramTs retT body use)
+     (define nextIndex (hash-count sto))
+     (define newEnv (cons (Bind fnName nextIndex) env))
+     (hash-set! sto nextIndex (cloV body params newEnv))
+     (interp use newEnv sto)]
     [(numV val) exp]
     [(strV val) exp]
     [(boolV val) exp]))
@@ -64,7 +68,6 @@
 (: extend-env (-> (Listof Symbol) (Listof Value) Env Store Env))
 (define (extend-env symbols args env sto)
   (cond
-    [(xor (empty? symbols) (empty? args)) (error "Different numbers of ids and args DXUQ")]
     [(empty? symbols) env]
     [else (define nextIndex (hash-count sto))
           (hash-set! sto nextIndex (first args))
@@ -157,8 +160,7 @@
   (match (interp if env sto)
     [(boolV val) (cond
                    [val (interp then env sto)]
-                   [else (interp else env sto)])]
-    [other (error "Invalid operands for DXUQ if")]))
+                   [else (interp else env sto)])]))
 
 
 ; serializes a value into a string
@@ -236,7 +238,13 @@
                         [(fnT paramTs returnT) (check-param-types paramTs args tenv) returnT]
                         [other (error 'ERROR "Arguments applied to non-function ~e" body)])]
     [(lamC ids body types) (extend-tenv ids types tenv) (fnT types (type-check body tenv))]
-    [(recC fnName params argTs returnT body use) (numT)]
+    [(recC fnName params paramTs returnT body use)
+     (begin
+       (define fnType (fnT paramTs returnT))
+       (extend-tenv (cons fnName params) (cons fnType paramTs) tenv)
+       (cond
+         [(equal? (type-check body tenv) returnT) (type-check use tenv)]
+         [else (error 'DXUQ "Invalid recursive function ~e" fnName)]))]
     [(numV n) (numT)]
     [(strV str) (strT)]))
 
@@ -257,7 +265,6 @@
     [(empty? targetTypes) 0]
     [(equal? (first targetTypes) (type-check (first args) tenv)) (check-param-types (rest targetTypes) (rest args) tenv)]
     [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
-
 
 
 (define top-env (list (Bind '+ 0)
@@ -342,26 +349,29 @@
            (lambda () {type-check (parse '{hello 1 2}) top-t-env}))
 (check-exn (regexp (regexp-quote "Arguments applied to non-function (numV 1432)"))
            (lambda () {type-check (parse '{1432 1 2}) top-t-env}))
+(check-equal? (type-check (parse '{rec
+                                      {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
+                                    {factorial 3}}) top-t-env) (numT))
+(check-exn (regexp (regexp-quote "Invalid recursive function 'factorial"))
+           (lambda () (type-check (parse '{rec
+                                              {{factorial [num n]} : num {if {<= n 0} true {num-eq? n {factorial {- n 1}}}}}
+                                            {factorial 3}}) top-t-env)))
+(check-equal? (interp (parse '{rec
+                                  {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
+                                {factorial 3}}) top-env top-store) (numV 6))
 
 
-; tests for +
+; tests for primitives
 (check-equal? (interp (appC (idC '+) (list (numV 1) (numV 2))) top-env top-store) (numV 3))
-
-; tests for -
 (check-equal? (interp (appC (idC '-) (list (numV 1) (numV 2))) top-env top-store) (numV -1))
-
-; tests for *
 (check-equal? (interp (appC (idC '*) (list (numV 1) (numV 2))) top-env top-store) (numV 2))
-
-; tests for /
 (check-equal? (interp (appC (idC '/) (list (numV 2) (numV 2))) top-env top-store) (numV 1))
-
-; tests for <=
 (check-equal? (interp (appC (idC '<=) (list (numV 1) (numV 2))) top-env top-store) (boolV #t))
-
-; tests for substring
 (check-equal? (interp (appC (idC 'substring) (list (strV "hello") (numV 0) (numV 2))) top-env top-store) (strV "he"))
-
-
-
+(check-exn (regexp (regexp-quote "Invalid operands for substring DXUQ"))
+           (lambda () {interp (parse '{substring "hello there" 3 0}) top-env top-store}))
+(check-equal? (interp (appC (idC 'num-eq?) (list (numV 1) (numV 1))) top-env top-store) (boolV #t))
+(check-equal? (interp (appC (idC 'num-eq?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
+(check-equal? (interp (appC (idC 'str-eq?) (list (strV "magic") (strV "magic"))) top-env top-store) (boolV #t))
+(check-equal? (interp (appC (idC 'str-eq?) (list (strV "magic") (strV "pen"))) top-env top-store) (boolV #f))
 
