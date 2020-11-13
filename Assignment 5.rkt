@@ -53,6 +53,15 @@
                                              valid}}}}
                     in-order}})
 
+; rev-array
+(define revarray '{let {revarray = 0} {firstHolder = 0} {lastHolder = 0}
+                    in {begin
+                         {revarray := {fn {arr first last} {begin {firstHoler := first} {lastHolder := last} {while {<= firstHolder lastHolder}
+                                                                  {begin {temp := {aref arr first}} {aset! arr first {aref arr last}} {aset! arr last temp}
+                                                                         {firstHolder := {- firstHolder 1}} {lastHolder := {- lastHolder 1}}}}}}}
+                         revarray}})
+                               
+
 
 ; interprets a DXUQ expression into a Value
 (: interp (-> ExprC Env Store Value))
@@ -563,6 +572,9 @@
 
 (check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
                             {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}})) "true")
+
+(check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
+                            {let {revarray = (unquote revarray)} in {revarray {array 1 2 3}}}})) "#<array>")
 
                                                                                             
 (check-equal? (top-interp '{let {b = "bogus"} in {begin {b := {array 1 {array 1 2 3} 4}} {aref b 2}}}) "4")

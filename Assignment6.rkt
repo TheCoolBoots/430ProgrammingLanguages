@@ -200,6 +200,7 @@
               (cons 'false (boolT))))
        TEnv))
 
+(define primitives '(+ - * / <= num-eq? str-eq? substring))
 
 ; takes in s-expr and parses to create ExprC
 (: parse (-> Sexp ExprC))
@@ -255,7 +256,7 @@
                                        [(equal? thenType elseType) thenType]
                                        [else (error 'DXUQ "~e and ~e types don't match in if statement" then else)])]
                             [other (error 'DXUQ "~e not of type boolean" if)])]; make sure type of if is boolean, then & else have same type, return type of then
-    [(appC body args) (numT)] ; arg types must match param types of body, extend type-env, return type of body return
+    [(appC body args) (type-check-app body args tenv)] ; arg types must match param types of body, extend type-env, return type of body return
     [(lamC ids body types) (fnT types (type-check body tenv))] ; return type of body
     [(boolV val) (boolT)]
     [(numV n) (numT)]
@@ -263,36 +264,54 @@
 
 
 (: type-check-app (-> ExprC (Listof ExprC) TEnv Type))
-(define (type-check-app lamc args tenv)
-  (match lamc
-    ; prove lamc is fn (t1 ...) -> t2
+(define (type-check-app body args tenv)
+  (match body
+    ; prove body is fn (t1 ...) -> t2
     ; prove arg types match (t1 ...)
     ; extend type env to include mappings of symbols
     ; prove lamc->body is of t2
-    [(lamC ids body types) (define returnType (match (type-check lamc tenv)
-                                                [(fnT paramTs returnT) returnT]))
-                           (define newTEnv (argTypesValid? ids types args tenv))
+    [(lamC ids body types) (define newTEnv (check-lamc-params ids types args tenv))
+                           (define returnType (type-check body newTEnv))
                            (define bodyType (type-check body newTEnv))
-                           
                            (cond
                              [(equal? bodyType returnType) returnType]
                              [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" returnType bodyType)])]
-    [other (error 'ERROR "Arguments applied to non-function ~e" lamc)]))
+    [(idC sym) #:when (member sym primitives) (begin
+                                                (define returnType (match (hash-ref tenv sym)
+                                                                     [(fnT paramTs returnT) returnT]))
+                                                (define paramTypes (match (hash-ref tenv sym)
+                                                                     [(fnT paramTs returnT) paramTs]))
+                                                (check-prim-types paramTypes args tenv)
+                                                returnType)]
+    [other (error 'ERROR "Arguments applied to non-function ~e" body)]))
+
+
+; verifies primitives have correct parameters
+(: check-prim-types (-> (Listof Type) (Listof ExprC) TEnv Any))
+(define (check-prim-types targetTypes args tenv)
+  (cond
+    [(xor (empty? targetTypes) (empty? args)) (error 'DXUQ "unequal numbers of params and args")]
+    [(empty? targetTypes) 0]
+    [(equal? (first targetTypes) (type-check (first args) tenv)) (check-prim-types (rest targetTypes) (rest args) tenv)]
+    [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
 
 
 ; helper function for checking appC param and arg types
-(: argTypesValid? (-> (Listof Symbol) (Listof Type) (Listof ExprC) TEnv TEnv))
-(define (argTypesValid? ids targetTypes args tenv)
+(: check-lamc-params (-> (Listof Symbol) (Listof Type) (Listof ExprC) TEnv TEnv))
+(define (check-lamc-params ids targetTypes args tenv)
   (cond
     [(xor (empty? targetTypes) (empty? args)) (error 'DXUQ "unequal numbers of params and args")]
     [(empty? targetTypes) tenv]
     [(equal? (first targetTypes) (type-check (first args) tenv)) (hash-set! tenv (first ids) (first targetTypes))
-                                                                 (argTypesValid? (rest ids) (rest targetTypes) (rest args) tenv)]
+                                                                 (check-lamc-params (rest ids) (rest targetTypes) (rest args) tenv)]
     [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
 
 ; tests for parse
 (check-equal? (parse '{let {num s = 5} in {+ s s}})
               (appC (lamC (list 's) (appC (idC '+) (list (idC 's) (idC 's))) (list (numT))) (list (numV 5))))
 (check-equal? (parse '{if true "hi" "bye"}) (condC (idC 'true) (strV "hi") (strV "bye")))
+(check-equal? (type-check (parse '{let {num s = 5} in {+ s s}}) top-t-env)
+              (numT))
+(check-equal? (type-check (parse '{+ 1 4}) top-t-env) (numT))
 
 
