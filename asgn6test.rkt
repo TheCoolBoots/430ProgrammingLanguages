@@ -58,6 +58,7 @@
     [(numC n) (numV n)]
     [(stringC s) (strV s)]
     [(lamC arg body types) (closV arg body env)]
+    [(recC name args argT ret body use) (interp-rec exp env)]
     [(ifC test then else) (define b (interp test env))
                           (cond
                               [(equal? b (boolV #t)) (interp then env)]
@@ -69,9 +70,11 @@
         (define new-env (extend-env clo-env ids interpretedParams))
         (interp clo-body new-env)]
        [(primV symbol) (symbol (map (lambda ([param : ExprC]) (interp param env)) args))]
+      
        )]
     [(idC sym) 
                  (lookup sym env)]))
+
 
 ;;extend env
 (define (extend-env [env : Env] [args : (Listof Symbol)] [vals : (Listof Value)]): Env
@@ -162,6 +165,14 @@
        [(and (< n1 n2) (>= n1 0) (<= n2 (string-length str))) (strV (substring str n1 n2))]
        [else (error "Invalid substring operation DXUQ")])]
     [other (error "Invalid substring operation DXUQ")]))
+
+(define (interp-rec [expr : ExprC] [env : Env]) : Value
+  (match expr
+    [(recC name args argT ret body use) 
+     (define new-env (extend-env env (list name) (list (strV "dummy"))))
+     (define new-env2 (extend-env new-env (list name) (list (closV args body new-env))))
+     (interp use new-env2)]))
+     
 
 
 ;;takes an s-expr, returns a ExprC
@@ -426,7 +437,12 @@
 (check-equal? (top-interp '((fn ([str a] [num b] [num c]) (substring a b c)) "hello" 0 3))
               "\"hel\"")
 
-
+(check-equal? (top-interp'{rec {{square-helper [num n]} : num
+      {if {<= n 0} 0 {+ n {square-helper {- n 2}}}}}
+  {let {{num -> num} square =
+        {fn {[num n]} {square-helper {- {* 2 n} 1}}}}
+    in
+    {square 13}}}) "169")
 
 (check-equal? (type-check (parse '{rec {{square-helper [num n]} : num
       {if {<= n 0} 0 {+ n {square-helper {- n 2}}}}}
@@ -442,6 +458,11 @@
         {fn {[num n]} {square-helper {- {* 2 n} 1}}}}
     in
     {square 13}}}) base-tenv)))
+
+(check-equal? (top-interp '(rec ((fact (num n)) :
+                                                num (if (num-eq? n 0) 1
+                                                        (* n (fact (- n 1)))))
+                             (fact 10))) "3628800")
 
 (check-equal? (serialize (numV 1)) "1")
 (check-equal? (serialize (strV "hello")) "\"hello\"")
