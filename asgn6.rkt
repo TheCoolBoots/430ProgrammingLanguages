@@ -4,7 +4,6 @@
 
 
 ; not done yet
-;Extend your type checker to handle applications.
 
 ; definitions for ExprC types
 (define-type ExprC (U idC appC condC lamC recC Value))
@@ -75,58 +74,40 @@
 ; interprets addition primitive
 (: interp-add (-> (Listof Value) numV))
 (define (interp-add args)
-  (cond
-    [(not (equal? (length args) 2)) (error "Invalid number of arguments for + DXUQ")]
-    [else (match (first args)
-            [(numV n) (match (second args)
-                        [(numV m) (numV (+ n m))]
-                        [other (error "Invalid operands for + DXUQ")])]
-            [other (error "Invalid operands for + DXUQ")])]))
-
+  (match (first args)
+    [(numV n) (match (second args)
+                [(numV m) (numV (+ n m))])]))
+                        
 ; interprets subtraction primitive
 (: interp-sub (-> (Listof Value) numV))
 (define (interp-sub args)
-    (cond
-      [(not (equal? (length args) 2)) (error "Invalid number of arguments for - DXUQ")]
-      [else (match (first args)
-              [(numV n) (match (second args)
-                          [(numV m) (numV (- n m))]
-                          [other (error "Invalid operands for - DXUQ")])]
-              [other (error "Invalid operands for - DXUQ")])]))
-
+  (match (first args)
+    [(numV n) (match (second args)
+                [(numV m) (numV (- n m))])]))
+                         
 ; interprets multiplication primitive
 (: interp-mult (-> (Listof Value) numV))
 (define (interp-mult args)
-    (cond
-      [(not (equal? (length args) 2)) (error "Invalid number of arguments for * DXUQ")]
-      [else (match (first args)
-            [(numV n) (match (second args)
-                        [(numV m) (numV (* n m))]
-                        [other (error "Invalid operands for * DXUQ")])]
-            [other (error "Invalid operands for * DXUQ")])]))
-
+  (match (first args)
+    [(numV n) (match (second args)
+                [(numV m) (numV (* n m))])]))
+               
 ; interprets division primitive
 (: interp-div (-> (Listof Value) numV))
 (define (interp-div args)
-  (cond
-      [(not (equal? (length args) 2)) (error "Invalid number of arguments for / DXUQ")]
-      [else (match (first args)
-            [(numV n) (match (second args)
-                        [(numV (? natural? m)) (numV (/ n m))]
-                        [other (error "Invalid operands for / DXUQ")])]
-            [other (error "Invalid operands for / DXUQ")])]))
-
+  (match (first args)
+    [(numV n) (match (second args)
+                [(numV (? natural? m)) (cond
+                                         [(equal? m 0) (error "Dividing by zero DXUQ")]
+                                         [else (numV (/ n m))])])]))
+  
 ; interprets <= exprC exprC to a boolean
 (: interp-leq (-> (Listof Value) boolV))
 (define (interp-leq args)
-  (cond
-      [(not (equal? (length args) 2)) (error "Invalid number of arguments for <= DXUQ")]
-      [else (match (first args)
-            [(numV n) (match (second args)
-                        [(numV m) (boolV (<= n m))]
-                        [other (error "Invalid operands for <= DXUQ")])]
-            [other (error "Invalid operands for <= DXUQ")])]))
-
+  (match (first args)
+    [(numV n) (match (second args)
+                [(numV m) (boolV (<= n m))])]))
+                      
 ; looks up a symbol in an environment then returns the value associated with the symbol
 (: lookup-env (-> Symbol Env Value))
 (define (lookup-env sym env)
@@ -211,10 +192,11 @@
                        [else (funT-ret ft)])]
     [(lamC names body types) (define new-tenv (extend-tenv names types env))
                              (funT types (type-check body new-tenv))]
-    [(recC name ids types retT body expr) (define new-tenv (extend-tenv ids types env))
-                                          (cond
-                                            [(not (equal? retT (type-check body new-tenv))) (error "Invalid return type DXUQ")]
-                                            [else (type-check expr new-tenv)])]
+    [(recC name args argT ret body use) (define new-env (extend-tenv (list name) (list (funT argT ret)) env))
+                                        (cond
+                                          [(not (equal? ret (type-check body (extend-tenv args argT new-env))))
+                                           (error "body return type not correct DXUQ")]
+                                          [else (type-check use new-env)])]
     [other (error "Type-check failure DXUQ")]))
 
 ; checks to see if an ID is not a reserved DXUQ4 keyword
@@ -249,7 +231,7 @@
 ; interprets a DXUQ program into a string
 (define (top-interp [s : Sexp]) : String
   (define expr (parse s))
-  (type-check expr top-tenv)
+  (type-check expr base-tenv)
   (serialize (interp expr top-env)))
 
 (define top-env (list (Bind 'true (boolV #t))
@@ -261,7 +243,7 @@
                       (Bind '<= (primV interp-leq))
                       ))
 
-(define top-tenv (list (TBind 'true (boolT))
+(define base-tenv (list (TBind 'true (boolT))
                        (TBind 'false (boolT))
                        (TBind '+ (funT (list (numT) (numT)) (numT)))
                        (TBind '- (funT (list (numT) (numT)) (numT)))
@@ -361,10 +343,10 @@
            (lambda () {type-check (condC (numV 1) (numV 1) (numV 1)) '()}))
 (check-exn (regexp (regexp-quote "Type of statements following if don't match DXUQ"))
            (lambda () {type-check (condC (boolV #t) (numV 1) (strV "david")) '()}))
-(check-equal? (type-check (appC (idC '+) (list (numV 1) (numV 2))) top-tenv) (numT))
+(check-equal? (type-check (appC (idC '+) (list (numV 1) (numV 2))) base-tenv) (numT))
 (check-exn (regexp (regexp-quote "Not a function DXUQ"))
-           (lambda () {type-check (appC (idC 'true) (list (numV 1))) top-tenv}))
+           (lambda () {type-check (appC (idC 'true) (list (numV 1))) base-tenv}))
 (check-exn (regexp (regexp-quote "App argument mismatch DXUQ"))
-           (lambda () {type-check (appC (idC '*) (list (numV 1) (strV "a"))) top-tenv}))
-(check-equal? (type-check (lamC (list 'x 'y) (appC (idC '+) (list (numV 2) (numV 4))) (list (numT) (numT))) top-tenv)
+           (lambda () {type-check (appC (idC '*) (list (numV 1) (strV "a"))) base-tenv}))
+(check-equal? (type-check (lamC (list 'x 'y) (appC (idC '+) (list (numV 2) (numV 4))) (list (numT) (numT))) base-tenv)
               (funT (list (numT) (numT)) (numT)))
