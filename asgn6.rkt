@@ -4,7 +4,7 @@
 
 ;;not passing while/in-order test case
 
-(define-type ExprC (U numC stringC ifC idC fnC appC lamC assignC))
+(define-type ExprC (U numC stringC ifC idC fnC appC lamC assignC recC))
 (struct numC ([n : Real]) #:transparent)
 (struct stringC ([s : String]) #:transparent)
 (struct ifC ([test : ExprC] [then : ExprC] [else : ExprC])  #:transparent)
@@ -13,7 +13,8 @@
 (struct appC ([fun : ExprC] [l : (Listof ExprC)]) #:transparent)
 (struct lamC ([arg : (Listof Symbol)] [body : ExprC] [t : (Listof Type)]) #:transparent)
 (struct assignC ([id : Symbol] [body : ExprC]) #:transparent)
-(struct recC ([name : Symbol] [val : Real] [body : ExprC]) #:transparent)
+(struct recC ([name : Symbol] [args : (Listof Symbol)] [argT : (Listof Type)]
+                              [ret : Type] [body : ExprC] [use : ExprC]) #:transparent)
 
 (define-type Value (U numV funV strV primV boolV closV arrayV nullV))
 (struct numV ([n : Real]) #:transparent)
@@ -340,14 +341,14 @@
                                                           (map (lambda (x) (parse-type x))
                                                                (cast ty (Listof Sexp))))]
                                                    [else (error "invalid format DXUQ")])]
-    [(list 'rec (list (list (? symbol? sym) (list (? symbol? sym2) (? symbol? sym3)) ...)
-                      ': (? symbol? sym4) (? symbol? sym5)) expr) (numC 1)]
+    [(list 'rec (list (list (? symbol? s) (list t (? symbol? s2)) ...) ': t2 expr) expr2)
+     (recC  s (cast s2 (Listof Symbol))
+            (map (lambda ([x : Sexp]) (parse-type x)) (cast t (Listof Sexp))) (parse-type t2) (parse expr) (parse expr2))]
     [(list expr expr2 ...) (cond
                        [(empty? expr) (error "invalid format DXUQ")]
                        [else (appC (parse expr) (map (lambda (a) (parse a)) expr2))])]
     
     [else (error "invalid format DXUQ test")]))
-
 
 
 (define (parse-let2 [t : (Listof Any)] [l : (Listof Any)] [l2 : (Listof Any)] [body : Sexp]) : ExprC
@@ -359,7 +360,6 @@
   (cond
     [(and (empty? t) (empty? var)) '()]
     [else (cast (cons (list (first t) (first var)) (let-helper (rest t) (rest var))) Sexp)]))
-  
   
   
     
@@ -401,6 +401,7 @@
   (parse (cast (cons (list 'fn ids body) args) Sexp)))
 
 
+
 ;;type checker
 (define (type-check [expr : ExprC] [te : TEnv]) : Type
   (match expr
@@ -408,6 +409,11 @@
     [(stringC s) (strT)]
     [(idC s) (lookup-type s te)]
     [(lamC args body t) (define new-env (extend-type-env te args t)) (funT t (type-check body new-env))]
+    [(recC name args argT ret body use) (define new-env (extend-type-env  te (list name) (list (funT argT ret))))
+                                        (cond
+                                          [(not (equal? ret (type-check body (extend-type-env new-env args argT))))
+                                           (error "body return type not correct DXUQ")]
+                                          [else (type-check use new-env)])]
     [(appC fun l) (define ft (type-check fun te))
                   (define la (map (lambda ([x : ExprC]) (type-check x te)) l))
                   (cond
@@ -455,6 +461,7 @@
                         (BindT 'true (boolT))
                         (BindT 'false (boolT))))
                         
+
 
 (check-equal? (type-check (numC 5) base-tenv) (numT))
 (check-equal? (type-check (stringC "hello") base-tenv) (strT))
