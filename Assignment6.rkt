@@ -60,8 +60,7 @@
      (hash-set! sto nextIndex (cloV body params newEnv))
      (interp use newEnv sto)]
     [(numV val) exp]
-    [(strV val) exp]
-    [(boolV val) exp]))
+    [(strV val) exp]))
 
 
 ; returns extended environment including given symbols/ExprC's
@@ -163,19 +162,6 @@
                    [else (interp else env sto)])]))
 
 
-; serializes a value into a string
-(: serialize (-> Value String))
-(define (serialize val)
-  (match val
-    [(numV val) (~v val)]
-    [(strV val) val]
-    [(boolV val) (cond
-                   [val "true"]
-                   [else "false"])]
-    [(primV sym) "#<primop>"]
-    [(cloV body ids env) "#<procedure>"]))
-
-
 ; takes in s-expr and parses to create ExprC
 (: parse (-> Sexp ExprC))
 (define (parse s)
@@ -185,15 +171,21 @@
     [(? symbol? s) #:when (not (member s reserved)) (idC s)]
     [(list 'if exprIf exprThen exprElse) (condC (parse exprIf) (parse exprThen) (parse exprElse))]
     [(list 'let mappings ... 'in body) (parse-let mappings body)]
-    [(list 'fn (list ty_ids ...) expr) (define types (map (lambda (ty_id) (match ty_id
-                                                                            [(list type (? symbol? id)) (parse-type (cast type Sexp))]
-                                                                            [other (error 'DXUQ "cannot parse ~e" ty_id)])) ty_ids))
-                                       (define ids (map (lambda (ty_id) (match ty_id
-                                                                            [(list type (? symbol? id)) id])) ty_ids))
+    [(list 'fn (list ty_ids ...) expr) (define types
+                                         (map (lambda (ty_id)
+                                                (match ty_id
+                                                  [(list type (? symbol? id)) (parse-type (cast type Sexp))]
+                                                  [other (error 'DXUQ "cannot parse ~e" ty_id)])) ty_ids))
+                                       (define ids
+                                         (map (lambda (ty_id)
+                                                (match ty_id
+                                                  [(list type (? symbol? id)) id])) ty_ids))
                                        (lamC ids (parse expr) types)]
     [(list 'rec (list (list (? symbol? s) (list t (? symbol? s2)) ...) ': t2 expr) expr2)
      (recC  s (cast s2 (Listof Symbol))
-            (map (lambda ([x : Sexp]) (parse-type x)) (cast t (Listof Sexp))) (parse-type t2) (parse expr) (parse expr2))]
+            (map (lambda ([x : Sexp]) (parse-type x))
+                 (cast t (Listof Sexp)))
+            (parse-type t2) (parse expr) (parse expr2))]
      [(list expr args ...) (appC (parse expr) (map (lambda (arg) (parse arg)) args))]
     [other (error "Invalid format DXUQ")]))
 
@@ -212,9 +204,10 @@
 ; desugars a let statement into a function application (appC)
 (: parse-let (-> (Listof Any) Sexp ExprC))
 (define (parse-let mappings body)
-  (define ty_ids (map (lambda (mapping) (match mapping
-                                       [(list type (? symbol? s) '= expr) (list type s)]
-                                       [other (error 'DXUQ "Invalid formatting for let statement ~e" mapping)])) mappings))
+  (define ty_ids (map (lambda (mapping)
+                        (match mapping
+                          [(list type (? symbol? s) '= expr) (list type s)]
+                          [other (error 'DXUQ "Invalid formatting for let statement ~e" mapping)])) mappings))
   (define args (map (lambda (mapping) (match mapping
                                         [(list type (? symbol? s) '= expr) expr])) mappings))
   (parse (cast (cons (list 'fn ty_ids body) args) Sexp)))
@@ -227,16 +220,17 @@
     [(idC sym) (cond
                  [(member sym (hash-keys tenv)) (hash-ref tenv sym)]
                  [else (error 'DXUQ "Unbound variable ~e" sym)])]
-    [(condC if then else) (match (type-check if tenv)
-                            [(boolT) (define thenType (type-check then tenv))
-                                     (define elseType (type-check else tenv))
-                                     (cond
-                                       [(equal? thenType elseType) thenType]
-                                       [else (error 'DXUQ "~e and ~e types don't match in if statement" thenType elseType)])]
+    [(condC if then else)
+     (match (type-check if tenv)
+       [(boolT) (define thenType (type-check then tenv))
+                (define elseType (type-check else tenv))
+                (cond
+                  [(equal? thenType elseType) thenType]
+                  [else (error 'DXUQ "~e and ~e types don't match in if statement" thenType elseType)])]
                             [other (error 'DXUQ "If statement condition not of type boolean")])]
     [(appC body args) (match (type-check body tenv)
                         [(fnT paramTs returnT) (check-param-types paramTs args tenv) returnT]
-                        [other (error 'ERROR "Arguments applied to non-function ~e" body)])]
+                        [other (error 'DXUQ "Arguments applied to non-function ~e" body)])]
     [(lamC ids body types) (extend-tenv ids types tenv) (fnT types (type-check body tenv))]
     [(recC fnName params paramTs returnT body use)
      (begin
@@ -263,9 +257,32 @@
   (cond
     [(xor (empty? targetTypes) (empty? args)) (error 'DXUQ "unequal numbers of params and args")]
     [(empty? targetTypes) 0]
-    [(equal? (first targetTypes) (type-check (first args) tenv)) (check-param-types (rest targetTypes) (rest args) tenv)]
-    [else (error 'DXUQ "type mismatch. Expected ~e but got ~e" (first targetTypes) (type-check (first args) tenv))]))
+    [(equal? (first targetTypes) (type-check (first args) tenv))
+     (check-param-types (rest targetTypes) (rest args) tenv)]
+    [else (error 'DXUQ "type mismatch. Expected ~e but got ~e"
+                 (first targetTypes) (type-check (first args) tenv))]))
 
+
+; serializes a value into a string
+(: serialize (-> Value String))
+(define (serialize val)
+  (match val
+    [(numV val) (~v val)]
+    [(strV val) val]
+    [(boolV val) (cond
+                   [val "true"]
+                   [else "false"])]
+    [(primV sym) "#<primop>"]
+    [(cloV body ids env) "#<procedure>"]))
+
+
+; interprets a DXUQ6 expression into a string
+(: top-interp (-> Sexp String))
+(define (top-interp exp)
+  (begin
+    (define abstractSyntax (parse exp))
+    (type-check abstractSyntax base-tenv)
+    (serialize (interp abstractSyntax top-env top-store))))
 
 (define top-env (list (Bind '+ 0)
                       (Bind '- 1)
@@ -294,7 +311,7 @@
        Store))
 
 
-(define top-t-env
+(define base-tenv
   (ann (make-hash
         (list (cons '+ (fnT (list (numT) (numT)) (numT)))
               (cons '- (fnT (list (numT) (numT)) (numT)))
@@ -303,7 +320,7 @@
               (cons '<= (fnT (list (numT) (numT)) (boolT)))
               (cons 'num-eq? (fnT (list (numT) (numT)) (boolT)))
               (cons 'str-eq? (fnT (list (strT) (strT)) (boolT)))
-              (cons 'substring (fnT (list (strT) (numT)) (numT)))
+              (cons 'substring (fnT (list (strT) (numT) (numT)) (strT)))
               (cons 'true (boolT))
               (cons 'false (boolT))))
        TEnv))
@@ -312,7 +329,9 @@
 
 ; tests for parse
 (check-equal? (parse '{let {num s = 5} in {+ s s}})
-              (appC (lamC (list 's) (appC (idC '+) (list (idC 's) (idC 's))) (list (numT))) (list (numV 5))))
+              (appC (lamC (list 's)
+                          (appC (idC '+) (list (idC 's) (idC 's)))
+                          (list (numT))) (list (numV 5))))
 (check-equal? (parse '{if true "hi" "bye"}) (condC (idC 'true) (strV "hi") (strV "bye")))
 (check-exn (regexp (regexp-quote "Invalid formatting for let statement '(bool n = 5 3)"))
            (lambda () (parse '{let {bool n = 5 3} in {+ n n}})))
@@ -329,33 +348,35 @@
 
 
 ; tests for type-check
-(check-equal? (type-check (parse '{let {num s = 5} in {+ s s}}) top-t-env)
+(check-equal? (type-check (parse '{let {num s = 5} in {+ s s}}) base-tenv)
               (numT))
-(check-equal? (type-check (parse '{+ 1 4}) top-t-env) (numT))
-(check-equal? (type-check (parse '{num-eq? 1 4}) top-t-env) (boolT))
-(check-equal? (type-check (parse '{if true true false}) top-t-env) (boolT))
-(check-equal? (type-check (parse '{if true "hi" "bye"}) top-t-env) (strT))
+(check-equal? (type-check (parse '{+ 1 4}) base-tenv) (numT))
+(check-equal? (type-check (parse '{num-eq? 1 4}) base-tenv) (boolT))
+(check-equal? (type-check (parse '{if true true false}) base-tenv) (boolT))
+(check-equal? (type-check (parse '{if true "hi" "bye"}) base-tenv) (strT))
 (check-exn (regexp (regexp-quote "unequal numbers of params and args"))
-           (lambda () {type-check (parse '{+ 1 2 3}) top-t-env}))
+           (lambda () {type-check (parse '{+ 1 2 3}) base-tenv}))
 (check-exn (regexp (regexp-quote "type mismatch. Expected (numT) but got (boolT)"))
-           (lambda () {type-check (parse '{+ true 3}) top-t-env}))
+           (lambda () {type-check (parse '{+ true 3}) base-tenv}))
 (check-exn (regexp (regexp-quote "type mismatch. Expected (numT) but got (boolT)"))
-           (lambda () {type-check (parse '{{fn {[num x]} {+ x x}} true}) top-t-env}))
+           (lambda () {type-check (parse '{{fn {[num x]} {+ x x}} true}) base-tenv}))
 (check-exn (regexp (regexp-quote "If statement condition not of type boolean"))
-           (lambda () {type-check (parse '{if 1 2 3}) top-t-env}))
+           (lambda () {type-check (parse '{if 1 2 3}) base-tenv}))
 (check-exn (regexp (regexp-quote "(boolT) and (fnT (list (numT)) (numT)) types don't match in if statement"))
-           (lambda () {type-check (parse '{if true false {fn {[num n]} n}}) top-t-env}))
+           (lambda () {type-check (parse '{if true false {fn {[num n]} n}}) base-tenv}))
 (check-exn (regexp (regexp-quote "Unbound variable 'hello"))
-           (lambda () {type-check (parse '{hello 1 2}) top-t-env}))
+           (lambda () {type-check (parse '{hello 1 2}) base-tenv}))
 (check-exn (regexp (regexp-quote "Arguments applied to non-function (numV 1432)"))
-           (lambda () {type-check (parse '{1432 1 2}) top-t-env}))
-(check-equal? (type-check (parse '{rec
-                                      {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
-                                    {factorial 3}}) top-t-env) (numT))
+           (lambda () {type-check (parse '{1432 1 2}) base-tenv}))
+(check-equal? (type-check
+               (parse '{rec
+                           {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
+                         {factorial 3}}) base-tenv) (numT))
 (check-exn (regexp (regexp-quote "Invalid recursive function 'factorial"))
-           (lambda () (type-check (parse '{rec
-                                              {{factorial [num n]} : num {if {<= n 0} true {num-eq? n {factorial {- n 1}}}}}
-                                            {factorial 3}}) top-t-env)))
+           (lambda () (type-check
+                       (parse '{rec
+                                   {{factorial [num n]} : num {if {<= n 0} true {num-eq? n {factorial {- n 1}}}}}
+                                 {factorial 3}}) base-tenv)))
 (check-equal? (interp (parse '{rec
                                   {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
                                 {factorial 3}}) top-env top-store) (numV 6))
@@ -374,4 +395,18 @@
 (check-equal? (interp (appC (idC 'num-eq?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
 (check-equal? (interp (appC (idC 'str-eq?) (list (strV "magic") (strV "magic"))) top-env top-store) (boolV #t))
 (check-equal? (interp (appC (idC 'str-eq?) (list (strV "magic") (strV "pen"))) top-env top-store) (boolV #f))
+
+
+; top-interp tests
+(check-equal? (top-interp '{rec
+                                  {{factorial [num n]} : num {if {<= n 0} 1 {* n {factorial {- n 1}}}}}
+                                {factorial 3}}) "6")
+(check-equal? (top-interp '{fn {[num x]} {+ x x}}) "#<procedure>")
+(check-equal? (top-interp '{if true true false}) "true")
+(check-equal? (top-interp '{substring {substring "abcd" 1 4} 1 3}) "cd")
+(check-equal? (top-interp '+) "#<primop>")
+(check-equal? (top-interp '{if true false false}) "false")
+(check-equal? (top-interp 'true) "true")
+
+
 
