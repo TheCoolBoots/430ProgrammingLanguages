@@ -59,10 +59,7 @@
     [(stringC s) (strV s)]
     [(lamC arg body types) (closV arg body env)]
     [(recC name args argT ret body use) (interp-rec exp env)]
-    [(ifC test then else) (define b (interp test env))
-                          (cond
-                              [(equal? b (boolV #t)) (interp then env)]
-                              [else (interp else env)])]         
+    [(ifC test then else) (interp-cond test then else env)]         
     [(appC fun args) (define interpretedBody (interp fun env))
      (match interpretedBody
        [(closV ids clo-body clo-env)
@@ -74,6 +71,14 @@
        )]
     [(idC sym) 
                  (lookup sym env)]))
+
+; interprets a DXUQ if statement and returns a Value
+(: interp-cond (-> ExprC ExprC ExprC Env Value))
+(define (interp-cond if then else env)
+  (match (interp if env)
+    [(boolV val) (cond
+                   [val (interp then env)]
+                   [else (interp else env)])]))
 
 
 ;;extend env
@@ -173,7 +178,6 @@
      (define new-env2 (extend-env new-env (list name) (list (closV args body new-env))))
      (interp use new-env2)]))
      
-
 
 ;;takes an s-expr, returns a ExprC
 (define (parse [s : Sexp]) : ExprC
