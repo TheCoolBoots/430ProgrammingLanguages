@@ -28,13 +28,39 @@
 (struct arrayV ([startIndex : Integer] [length : Integer]) #:transparent)
 (struct nullV ([val : Integer]) #:transparent)
 
-(define reserved '(if : = let in rec fn ->))
+(define reserved '(:= if let = in fn))
 
-(define-type Type (U fnT numT boolT strT))
-(struct fnT ([paramTypes : (Listof Type)] [returnType : Type]))
-(struct numT ([bogus : Any]))
-(struct boolT ([bogus : Any]))
-(struct strT ([bogus : Any]))
+
+; while
+(define while '{let {while = "bogus"}
+                 in {begin
+                      {while := {fn {guard body} {if {guard} {begin {body} {while guard body}} null}}}
+                 while}})
+
+
+; in-order
+(define in-order '{let {in-order = "bogus"} in
+                    {begin
+                      {in-order :=
+                                {fn {arr len}
+                                    {let {i = 0} {valid = true} in
+                                      {begin {while {fn {} {<= i (- len 2)}} {fn {} {if
+                                                                                     (<= {aref arr (+ i 1)}
+                                                                                         {aref arr i})
+                                                                                     (begin {i := (+ i 1)}
+                                                                                            {valid := false})
+                                                                                     (i := (+ i 1))}}}
+                                             valid}}}}
+                    in-order}})
+
+; rev-array
+(define revarray '{let {revarray = 0} {firstHolder = 0} {lastHolder = 0}
+                    in {begin
+                         {revarray := {fn {arr first last} {begin {firstHoler := first} {lastHolder := last} {while {<= firstHolder lastHolder}
+                                                                  {begin {temp := {aref arr first}} {aset! arr first {aref arr last}} {aset! arr last temp}
+                                                                         {firstHolder := {- firstHolder 1}} {lastHolder := {- lastHolder 1}}}}}}}
+                         revarray}})
+                               
 
 
 ; interprets a DXUQ expression into a Value
@@ -316,18 +342,6 @@
     [other (error "Invalid format DXUQ")]))
 
 
-; parses an s-expression into a type
-(: parse-type (-> Any Type))
-(define (parse-type s)
-  (match s
-    ['num (numT 0)]
-    ['bool (boolT 0)]
-    ['str (strT 0)]
-    [(list types ... '-> returnType)
-     (fnT (map (lambda (val) (parse-type val)) types) (parse-type returnType))]
-    [other (error 'ERROR "unrecognizable type ~e" s)]))
-
-
 ; checks to see if an ID is not a reserved DXUQ4 keyword
 (: validID? (-> Symbol Boolean))
 (define (validID? sym)
@@ -393,5 +407,177 @@
               (cons 14 (primV interp-substring))
               (cons 15 (nullV 0))))
        Store))
+
+
+; tests for +
+(check-equal? (interp (appC (idC '+) (list (numV 1) (numV 2))) top-env top-store) (numV 3))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for + DXUQ"))
+           (lambda () {interp (appC (idC '+) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for -
+(check-equal? (interp (appC (idC '-) (list (numV 1) (numV 2))) top-env top-store) (numV -1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for - DXUQ"))
+           (lambda () {interp (appC (idC '-) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for *
+(check-equal? (interp (appC (idC '*) (list (numV 1) (numV 2))) top-env top-store) (numV 2))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for * DXUQ"))
+           (lambda () {interp (appC (idC '*) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for /
+(check-equal? (interp (appC (idC '/) (list (numV 2) (numV 2))) top-env top-store) (numV 1))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (boolV #t))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for / DXUQ"))
+           (lambda () {interp (appC (idC '/) (list (numV 1) (numV 0))) top-env top-store}))
+
+; tests for <=
+(check-equal? (interp (appC (idC '<=) (list (numV 1) (numV 2))) top-env top-store) (boolV #t))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (boolV #t) (numV 2))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for <= DXUQ"))
+           (lambda () {interp (appC (idC '<=) (list (numV 1) (boolV #t))) top-env top-store}))
+
+; tests for equal?
+(check-equal? (interp (appC (idC 'equal?) (list (numV 1) (numV 2))) top-env top-store) (boolV #f))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for equal? DXUQ"))
+           (lambda () {interp (appC (idC 'equal?) (list (numV 1))) top-env top-store}))
+(check-equal? (interp (appC (idC 'equal?) (list (nullV 0) (nullV 0))) top-env top-store) (boolV #t))
+
+; tests for error
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi"))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for error DXUQ"))
+           (lambda () {interp (appC (idC 'error) (list (strV "hi") (strV "bye"))) top-env top-store}))
+
+; tests for array
+(define arr1 (interp (appC (idC 'array) (list (numV 1) (numV 2) (numV 3))) top-env top-store))
+(check-equal? (hash-ref top-store 16) (numV 1))
+(check-equal? (hash-ref top-store 17) (numV 2))
+(check-equal? (hash-ref top-store 18) (numV 3))
+(check-exn (regexp (regexp-quote "Cannot create array of length 0 DXUQ"))
+           (lambda () {interp (appC (idC 'array) '()) top-env top-store}))
+
+; tests for new-array
+(define arr2 (interp (appC (idC 'new-array) (list (numV 3) (strV "hello"))) top-env top-store))
+(check-equal? (hash-ref top-store 19) (strV "hello"))
+(check-equal? (hash-ref top-store 20) (strV "hello"))
+(check-equal? (hash-ref top-store 21) (strV "hello"))
+(check-exn (regexp (regexp-quote "Invalid operands for new-array DXUQ"))
+           (lambda () {interp (appC (idC 'new-array) (list (numV 0) (strV "hi"))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for new-array DXUQ"))
+           (lambda () {interp (appC (idC 'new-array) (list (numV 0))) top-env top-store}))
+
+(check-equal? (interp (appC (idC 'equal?) (list arr1 arr2)) top-env top-store) (boolV #f))
+(check-equal? (interp (appC (idC 'equal?) (list arr1 arr1)) top-env top-store) (boolV #t))
+
+; tests for aref
+(check-equal? (interp (appC (idC 'aref) (list arr1 (numV 2))) top-env top-store) (numV 3))
+(check-equal? (interp (appC (idC 'aref) (list arr2 (numV 0))) top-env top-store) (strV "hello"))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for aref DXUQ"))
+           (lambda () {interp (appC (idC 'aref) (list (numV 0))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for aref DXUQ"))
+           (lambda () {interp (appC (idC 'aref) (list arr2 (numV 3))) top-env top-store}))
+
+; tests for aset!
+(check-equal? (interp (appC (idC 'aset!) (list arr1 (numV 2) (strV "NEWBIEE"))) top-env top-store) (nullV 0))
+(check-equal? (hash-ref top-store 18) (strV "NEWBIEE"))
+(check-exn (regexp (regexp-quote "Invalid operands for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list (numV 2) (numV 3) (numV 3))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid operands for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list arr1 (numV 3) (numV 3))) top-env top-store}))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for aset! DXUQ"))
+           (lambda () {interp (appC (idC 'aset!) (list (numV 3) (numV 3))) top-env top-store}))
+
+; tests for begin
+(check-equal? (interp (appC (idC 'begin) (list (appC (idC '+) (list (numV 1) (numV 2)))
+                                               (appC (idC '+) (list (numV 1) (numV 3))))) top-env top-store) (numV 4))
+(check-exn (regexp (regexp-quote "Invalid number of arguments for begin DXUQ"))
+           (lambda () {interp (appC (idC 'begin) '()) top-env top-store}))
+
+; tests for substring
+(check-equal? (interp (appC (idC 'substring) (list (strV "hello") (numV 0) (numV 2))) top-env top-store) (strV "he"))
+(check-exn (regexp (regexp-quote "Invalid operands for substring DXUQ"))
+           (lambda () {interp (appC (idC 'substring) (list arr1 (numV 4) (numV 3))) top-env top-store}))
+
+(check-exn (regexp (regexp-quote "DXUQ: Applied arguments to 5"))
+           (lambda () {top-interp '{5 4 3}}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '{}}))
+(check-exn (regexp (regexp-quote "User Error DXUQ: hi"))
+           (lambda () {top-interp '{error "hi"}}))
+(check-equal? (top-interp '(fn () 9)) "#<procedure>")
+(check-equal? (top-interp '+) "#<primop>")
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (x x) 3)}))
+(check-exn (regexp (regexp-quote "Invalid format DXUQ"))
+           (lambda () {top-interp '(fn (3 4 5) 6)}))
+(check-equal? (top-interp '((fn (minus) (minus 8 5)) (fn (a b) (+ a (* -1 b))))) "3")
+(check-equal? (top-interp '{equal? "hello" "hello"}) "true")
+(check-equal? (top-interp '{equal? "hello" "bye"}) "false")
+{check-equal? (top-interp '{let {b = 5} {a = 5} in {+ a b}}) "10"}
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a = 12 1} in {+ a 2}}}))
+(check-exn (regexp (regexp-quote "Invalid formatting for let statement DXUQ"))
+           (lambda () {top-interp '{let {a =} in {+ a 2}}}))
+
+(check-equal? (top-interp '{let
+                              {p = {new-array 10 2}}
+                            in
+                            {aref p 3}}) "2")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             p}) "#<array>")
+(check-equal? (top-interp '{let
+                               {p = {array "david" "reko"}}
+                             in
+                             {begin
+                               {aset! p 1 2}
+                               {aref p 1}}}) "2")
+
+(check-equal? (top-interp '{let {fact = "bogus"}
+  in
+ {begin {fact := {fn {n} {if {<= n 0} 1 {* n {fact {- n 1}}}}}}
+   {fact 12}}}) "479001600")
+(check-exn (regexp (regexp-quote "Symbol 'a not found in Environment DXUQ"))
+           (lambda () {top-interp '{+ a 2}}))
+(check-exn (regexp (regexp-quote "Invalid operands for DXUQ if"))
+           (lambda () {top-interp '{if 7 2 3}}))
+(check-equal? (in-env? 's top-env) #f)
+(check-equal? (top-interp '{equal? {fn {x} {+ x x}} {fn {x} {+ x x}}}) "false")
+(check-equal? (top-interp '{begin {kee := 3}}) "null")
+(check-exn (regexp (regexp-quote "Different numbers of ids and args DXUQ"))
+           (lambda () (top-interp '{{fn {x} {+ x x}} 1 2})))
+(check-equal? (top-interp '{let {k = 5} in {begin {k := 3} {+ k k}}}) "6")
+(check-equal? (top-interp '{substring {substring "abcd" 1 4} 1 3}) "cd")
+
+(check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
+                            {let {in-order = (unquote in-order)} in {in-order {array 1 2 3} 3}}})) "true")
+
+(check-equal? (top-interp (quasiquote {let {while = (unquote while)} in
+                            {let {revarray = (unquote revarray)} in {revarray {array 1 2 3}}}})) "#<array>")
+
+                                                                                            
+(check-equal? (top-interp '{let {b = "bogus"} in {begin {b := {array 1 {array 1 2 3} 4}} {aref b 2}}}) "4")
+
 
 
