@@ -1,5 +1,7 @@
 #lang typed/racket
 
+
+
 ;; represents an expression
 (define-type ExprC (U Real Symbol String LamC AppC IfC SetC))
 (struct LamC ([params : (Listof Symbol)]
@@ -21,11 +23,10 @@
               [env : Env]))
 (struct ArrayV ([addr : Address] [length : Natural])
   #:transparent)
- 
+
 ;; represents an Environment
-(define-type Env (Listof Bind))
-(struct Bind ([name : Symbol] [loc : Natural]) #:transparent)
- 
+(define-type Env (HashTable Symbol Address))
+
 ;; represents an address
 (define-type Address Natural)
  
@@ -34,69 +35,87 @@
 
 
 ; returns a list of all free memory locations
-(: mark-and-sweep (-> Env Store (Listof Address)))
-(define (mark-and-sweep env sto)
-  (define markedAddresses (remove-duplicates (mark env sto)))
+(: mark-and-sweep (-> Env Store Store (Listof Address)))
+(define (mark-and-sweep env sto seen)
+  (define markedAddresses (remove-duplicates (mark (hash-keys env) (hash-values env) sto seen)))
   (define memAddresses (hash-keys sto))
   (set-subtract memAddresses markedAddresses))
 
 
 ; returns a list of all marked memory locations starting from top-env
-(: mark (-> Env Store (Listof Address)))
-(define (mark env sto)
+(: mark (-> (Listof Symbol) (Listof Address) Store Store (Listof Address)))
+(define (mark hashKeys hashValues sto seen)
   (cond
-    [(empty? env) '()]
-    [else (define currentMemAddr (Bind-loc (first env)))
-          (define currentValReferences (val-mem-loc (hash-ref sto currentMemAddr) sto))
-          (append (list currentMemAddr) currentValReferences (mark (rest env) sto))]))
+    [(empty? hashKeys) '()]
+    [else 
+     (cond
+       [(hash-ref seen (first hashValues) #f)
+        (mark (rest hashKeys) (rest hashValues) sto seen)]
+       [else
+        (hash-set! seen (first hashValues) #t)
+        (define currentValReferences (val-mem-loc (hash-ref sto (first hashValues)) sto seen))    
+        (append (list (first hashValues))
+                currentValReferences
+                (mark (rest hashKeys) (rest hashValues) sto seen))])]))
 
 
 ; returns a list of memory locations that the given value refers to
-(: val-mem-loc (-> Value Store (Listof Natural)))
-(define (val-mem-loc val sto)
+(: val-mem-loc (-> Value Store Store (Listof Natural)))
+(define (val-mem-loc val sto seen)
   (match val
-    [(CloV params body env) (mark env sto)]
-    [(ArrayV addr len) (get-array-references addr len 0 sto)]
+    [(CloV params body env) (mark (hash-keys env) (hash-values env) sto seen)]
+    [(ArrayV addr len) (get-array-references addr len 0 sto seen)]
     [other '()]))
 
 
 ; returns a list of memory locations referenced in the given array
-(: get-array-references (-> Address Natural Natural Store (Listof Natural)))
-(define (get-array-references memStart length currentIndex sto)
+(: get-array-references (-> Address Natural Natural Store Store (Listof Natural)))
+(define (get-array-references memStart length currentIndex sto seen)
   (cond
     [(equal? currentIndex length) '()]
-    [else (append (list (+ memStart currentIndex))
-                  (val-mem-loc (hash-ref sto (+ memStart currentIndex)) sto)
-                  (get-array-references memStart length (+ currentIndex 1) sto))]))
-
-
-
-
-
-#|; returns a list of memory locations that the given value refers to
-(: val-mem-loc (-> Value Env Store (Listof Integer)))
-(define (val-mem-loc val env sto)
-  (match val
-    [(cloV body args clo-env) (check-clo-env clo-env sto)]
-    [(arrayV memStart length) (check-array memStart 0 length env sto)]
-    [other '()]))
-
-
-; returns a list of memory locations referenced in the given array
-(: check-array (-> Integer Integer Integer Env Store (Listof Integer)))
-(define (check-array memStart currentIndex length env sto)
-  (cond
-    [(equal? currentIndex length) '()]
-    [else (append (list (+ memStart currentIndex))
-                  (val-mem-loc (hash-ref sto (+ memStart currentIndex)) env sto)
-                  (check-array memStart (+ currentIndex 1) length env sto))]))
-
-
-; returns a list of memory locations referenced in the given environment
-(: check-clo-env (-> Env Store (Listof Integer)))
-(define (check-clo-env env sto)
-  (cond
-    [(empty? env) '()]
+    [(hash-ref seen (+ memStart currentIndex) #f)
+     (get-array-references memStart length (+ currentIndex 1) sto seen)]
     [else
-     (define currentLoc (Bind-loc (first env)))
-     (append (list currentLoc) (val-mem-loc (hash-ref sto currentLoc) env sto) (check-clo-env (rest env) sto))]))|#
+     (hash-set! seen (+ memStart currentIndex) #t)
+     (append (list (+ memStart currentIndex))
+             (val-mem-loc (hash-ref sto (+ memStart currentIndex)) sto seen)
+             (get-array-references memStart length (+ currentIndex 1) sto seen))]))
+
+
+(define top-env
+  (ann (make-hash
+        (list (cons 'hi 0)
+              (cons 'bye 1)
+              (cons 'arr1 4)
+              (cons 'clo1 8)
+              (cons 'temp1 0)))
+       Env))
+
+
+(define clo-env
+  (ann (make-hash
+        (list (cons 'hi 4)
+              (cons 'bye 5)
+              (cons 'test 8)
+              ))
+       Env))
+
+
+(define top-store
+  (ann (make-hash
+        (list (cons 0 9)
+              (cons 1 "magic")
+              (cons 2 (ArrayV 3 1))
+              (cons 3 (ArrayV 2 1))
+              (cons 4 (ArrayV 5 3))
+              (cons 5 1)
+              (cons 6 2)
+              (cons 7 (ArrayV 4 1))
+              (cons 8 (CloV '(a b) 5 clo-env))))
+       Store))
+
+(define top-seen
+  (ann (make-hash)
+       Store))
+
+(mark-and-sweep top-env top-store top-seen)
