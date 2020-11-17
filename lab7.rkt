@@ -35,7 +35,7 @@
 
 ; returns a list of all free memory locations
 (: mark-and-sweep (-> Env Store (Listof Address)))
-(define (sweep env sto)
+(define (mark-and-sweep env sto)
   (define markedAddresses (remove-duplicates (mark env sto)))
   (define memAddresses (hash-keys sto))
   (set-subtract memAddresses markedAddresses))
@@ -66,7 +66,7 @@
   (cond
     [(equal? currentIndex length) '()]
     [else (append (list (+ memStart currentIndex))
-                  (val-mem-loc (hash-ref sto (cast (+ memStart currentIndex) Address)) sto)
+                  (val-mem-loc (hash-ref sto (+ memStart currentIndex)) sto)
                   (get-array-references memStart length (+ currentIndex 1) sto))]))
 
 
